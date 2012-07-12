@@ -393,7 +393,7 @@ twitter_time_to_datetime(<<_DDD:3/binary, " ", MMM:3/binary, " ", DD:2/binary, "
                      end,
             calendar:gregorian_seconds_to_datetime(UtcSec)
     end;
-twitter_time_to_datetime(TwitterDatetime) ->
+twitter_time_to_datetime(_TwitterDatetime) ->
     null.
 
 

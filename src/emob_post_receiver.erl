@@ -62,7 +62,7 @@ process_post(Post) ->
 
 -spec get_post(post_id()) -> #post{} | undefined | error().
 get_post(PostId) ->
-    case app_cache:get_data(?POST, PostId) of
+    case app_cache:get_data(?DIRTY, ?POST, PostId) of
         [Post] ->
             Post;
         _ ->
@@ -71,26 +71,17 @@ get_post(PostId) ->
 
 -spec get_rsvps(post_id()) -> [user_id()] | error().
 get_rsvps(PostId) ->
-    case app_cache:get_bag_data(?POST_RSVP, PostId) of
-        [] ->
-            [];
-        Rsvps ->
-            [X#post_rsvp.rsvp_user || X <- Rsvps]
-    end.
+    [X#post_rsvp.rsvp_user || X <- app_cache:get_data(?DIRTY, ?POST_RSVP, PostId)].
 
 -spec get_ignores(post_id()) -> [user_id()] | error().
 get_ignores(PostId) ->
-    case app_cache:get_bag_data(?POST_IGNORE, PostId) of
-        [] ->
-            [];
-        Ignores ->
-            [X#post_ignore.ignore_user || X <- Ignores]
-    end.
+    [X#post_ignore.ignore_user || X <- app_cache:get_data(?DIRTY, ?POST_IGNORE, PostId)].
 
 
+% TODO: Limit to 200
 -spec get_all_posts() -> [#post{}] | error().
 get_all_posts() ->
-    app_cache:get_after(?POST, ?FIRST_POST).
+    app_cache:get_after(?DIRTY, ?POST, ?FIRST_POST).
 
 -spec empty_posts() -> {atomic, ok} | error().
 empty_posts() ->
@@ -121,12 +112,12 @@ handle_cast({process_post, Tweet}, State) ->
     % TODO error?
     lager:debug("2,process_post  Tweet:~p~n", [Tweet]),
     PostId = Tweet#tweet.id,
-    case app_cache:key_exists(?POST, PostId) of
+    case app_cache:key_exists(?SAFE, ?POST, PostId) of
         false ->
             PostRecord = #post{
                     id = PostId,
                     post_data = Tweet},
-            app_cache:set_data(PostRecord),
+            app_cache:set_data(?SAFE, PostRecord),
             respond_to_post(Tweet),
             emob_post_distributor:distribute_post(PostId);
         true ->
@@ -158,7 +149,7 @@ code_change(_OldVsn, State, _Extra) ->
 -spec process_tweets(pid(), token(), secret()) -> ok | pid().
 process_tweets(DestPid, Token, Secret) ->
     SinceId =
-    case app_cache:get_last_data(?POST) of
+    case app_cache:get_last_entered_data(?DIRTY, ?POST) of
         [] ->
             ?FIRST_POST;
         [Post] ->

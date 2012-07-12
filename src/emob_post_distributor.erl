@@ -92,7 +92,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 -spec get_processed_status_and_post(post_id()) -> {post_processed_status(), #post{}}.
 get_processed_status_and_post(PostId) ->
-    case app_cache:get_data(?POST, PostId) of
+    case app_cache:get_data(?SAFE, ?POST, PostId) of
         [Post] ->
             {Post#post.processed, Post};
         _ ->
@@ -105,4 +105,4 @@ send_post_to_users(Post) ->
 
 -spec set_post_to_processed(#post{}) -> ok | error().
 set_post_to_processed(Post) ->
-    app_cache:set_data(Post#post{processed = true}).
+    app_cache:set_data(?SAFE, Post#post{processed = true}).

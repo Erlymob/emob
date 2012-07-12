@@ -20,6 +20,7 @@
                   bstr,
                   cowboy,
                   gproc,
+                  app_cache,
                   twitterl
                  ]},
   {mod, {emob_app, []}},

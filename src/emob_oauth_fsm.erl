@@ -93,7 +93,7 @@ get_credentials(Token) ->
 %% @doc Remove stored credentials
 -spec remove_credentials(token()) -> ok.
 remove_credentials(Token) ->
-    app_cache:remove_data(?USER, Token),
+    app_cache:remove_data(?SAFE, ?USER, Token),
     ok.
 
 %% ------------------------------------------------------------------
@@ -191,10 +191,10 @@ store_credentials(AccessData) ->
                  screen_name = AccessData#twitter_access_data.screen_name,
                  user_id = AccessData#twitter_access_data.user_id},
     lager:debug("User:~p~n", [User]),
-    app_cache:set_data(User).
+    app_cache:set_data(?SAFE, User).
 
 get_user_from_token(Token) ->
-    app_cache:get_data_from_index(?USER, Token, ?USER_ACCESS_TOKEN_POSITION).
+    app_cache:get_data_from_index(?SAFE, ?USER, Token, ?USER_ACCESS_TOKEN).
 
 get_credentials_from_user(User) ->
     #twitter_access_data{

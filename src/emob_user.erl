@@ -166,7 +166,7 @@ validate_user(User) ->
 
 -spec get_user_data(user_id()) -> #user{}.
 get_user_data(UserId) ->
-    case app_cache:get_data(?USER, UserId) of
+    case app_cache:get_data(?DIRTY, ?USER, UserId) of
         [User] ->
             User;
         _ ->
@@ -176,31 +176,31 @@ get_user_data(UserId) ->
 -spec rsvp_post_internal(user_id(), post_id()) -> ok | error().
 rsvp_post_internal(UserId, PostId) ->
     Entry = #post_rsvp{id = PostId, rsvp_user = UserId},
-    app_cache:set_data(Entry).
+    app_cache:set_data(?SAFE, Entry).
 
 -spec ignore_post_internal(user_id(), post_id()) -> ok | error().
 ignore_post_internal(UserId, PostId) ->
     Entry = #post_ignore{id = PostId, ignore_user = UserId},
-    app_cache:set_data(Entry).
+    app_cache:set_data(?SAFE, Entry).
 
 -spec set_callback_internal(user_id(), target()) -> #user{}.
 set_callback_internal(UserId, Target) ->
-    case app_cache:get_data(?USER, UserId) of
+    case app_cache:get_data(?SAFE, ?USER, UserId) of
         [User] ->
-            app_cache:set_data(User#user{callback = Target});
+            app_cache:set_data(?SAFE, User#user{callback = Target});
         _ ->
             {error, ?INVALID_USER}
     end.
 
 -spec update_posts_from_cache(#user{}) -> list().
 update_posts_from_cache(User) ->
-    case app_cache:get_after(?POST, User#user.last_post_processed) of
+    case app_cache:get_after(?DIRTY, ?POST, User#user.last_post_processed) of
         [_H|_Tail] = AllPosts ->
             SortedPosts = lists:sort(fun(A,B) -> A#post.id >= B#post.id end, AllPosts),
             LimitedPosts = lists:sublist(SortedPosts, ?MAX_POSTS),
             case LimitedPosts of
                 [LastPost|_] ->
-                    app_cache:set_data(User#user{last_post_processed = LastPost#post.id});
+                    app_cache:set_data(?SAFE, User#user{last_post_processed = LastPost#post.id});
                 [] ->
                     void
             end,
@@ -213,7 +213,7 @@ notify_user(User, PostId) ->
     TargetPid = User#user.callback,
     case TargetPid =/= undefined of
         true ->
-            Post = app_cache:get(?POST, PostId),
+            Post = app_cache:get(?DIRTY, ?POST, PostId),
             twitterl:respond_to_target({process, TargetPid}, {post, Post});
         false ->
             void

@@ -46,23 +46,6 @@
 
 -define(FIRST_POST, 1).
 
-%% APP_CACHE DEFINES
--define(INFINITY,     infinity).
--define(META_VERSION, 1).
--define(TEST_TABLE_1_TTL,     60).
--define(TEST_TABLE_2_TTL,     160).
--define(POST_TTL,        ?INFINITY).
--define(USER_TTL,        ?INFINITY).
--define(POST_RSVP_TTL,   60*60*24*100).
--define(POST_IGNORE_TTL, 60*60*24*100).
-
--define(SCAVENGE_FACTOR, 5*1000).       %% 1000 'cos of microseconds
-
--define(DEFAULT_CACHE_TTL, ?INFINITY).
--define(TIMESTAMP,     timestamp).
--define(DEFAULT_TIMESTAMP, undefined).
-
--define(METATABLE, app_metatable).
 
 %% TWITTER SPECIFIC RECORDS
 
@@ -141,23 +124,46 @@
 
 
 
-%% APP_CACHE TABLES and records
+%% APP_CACHE defines and records
+
+-define(SAFE,     safe).
+-define(DIRTY,     dirty).
+-define(POST_TTL,        ?INFINITY).
+-define(USER_TTL,        ?INFINITY).
+-define(POST_RSVP_TTL,   60*60*24*100).
+-define(POST_IGNORE_TTL, 60*60*24*100).
+
+
+-define(TABLES, [
+            #app_metatable{
+                table = ?POST,
+                version = 1,
+                time_to_live = ?POST_TTL,
+                type = ordered_set},
+
+            #app_metatable{
+                table = ?POST_RSVP,
+                version = 1,
+                time_to_live = ?POST_RSVP_TTL,
+                type = bag},
+
+            #app_metatable{
+                table = ?POST_IGNORE,
+                version = 1,
+                time_to_live = ?POST_IGNORE_TTL,
+                type = bag},
+
+            #app_metatable{
+                table = ?USER,
+                version = 1,
+                time_to_live = ?POST_IGNORE_TTL,
+                type = bag,
+                secondary_index_fields = [access_token]
+                }
+            ]).
+-define(FOO, fields(post)).
+
 %% All tables must have a field called timestamp. Somewhere. For sure.
--define(TEST_TABLE_1, test_table_1).
--record(test_table_1, {
-          key                                       :: binary(),
-          timestamp                                 :: timestamp(),
-          value                                     :: binary()
-         }).
-
--define(TEST_TABLE_2, test_table_2).
--record(test_table_2, {
-          id                                        :: binary(),
-          timestamp                                 :: timestamp(),
-          name                                      :: binary(),
-          pretty_name                               :: binary()
-         }).
-
 -define(POST, post).
 -record(post, {
           id                                        :: twitter_id(),
@@ -184,8 +190,6 @@
 
 
 -define(USER, user).
-%% TODO HACK! Fix get_position in dynarec
--define(USER_ACCESS_TOKEN_POSITION, 5).
 -record(user, {
           id                                        :: twitter_id(),
           timestamp                                 :: timestamp(),
@@ -197,25 +201,6 @@
           profile_picture                           :: profile_picture(),
           last_post_processed = ?FIRST_POST         :: post_id(),
           callback                                  :: target()
-         }).
-
-
-%% APP_CACHE METADATA
--record(app_metatable, {
-          table                                             :: table(),
-          version                                           :: table_version(),
-          time_to_live                                      :: time_to_live(),    %% in seconds
-          type                                              :: table_type(),
-          last_update                                       :: non_neg_integer(),
-          reason                                            :: any()
-         }).
-
--record(table_info, {
-          table                                  :: table(),
-          version                                :: table_version(),
-          time_to_live                           :: time_to_live(),
-          type                                   :: table_type(),
-          secondary_index_fields = []            :: list()
          }).
 
 

@@ -44,5 +44,6 @@
 -type callback_pid()                          :: pid() | atom().
 -type post_id()                               :: integer().
 -type post_processed_status()                 :: boolean().
-
+-type emob_seq_key()                          :: any().
+-type emob_seq_value()                        :: non_neg_integer().
 

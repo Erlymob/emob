@@ -29,7 +29,9 @@
 
 -export([get_posts/1]).
 -export([rsvp_post/2]).
+-export([unrsvp_post/2]).
 -export([ignore_post/2]).
+-export([unignore_post/2]).
 -export([process_post/2]).
 -export([notify_all_users/1]).
 
@@ -72,10 +74,20 @@ get_posts(UserId) ->
 rsvp_post(UserId, PostId) ->
     emob_manager:safe_call({?EMOB_USER, UserId}, {rsvp_post, PostId}).
 
+%% @doc un-RSVP to a post
+-spec unrsvp_post(user_id(), post_id()) -> ok | error().
+unrsvp_post(UserId, PostId) ->
+    emob_manager:safe_call({?EMOB_USER, UserId}, {unrsvp_post, PostId}).
+
 %% @doc Ignore to a post
 -spec ignore_post(user_id(), post_id()) -> ok | error().
 ignore_post(UserId, PostId) ->
     emob_manager:safe_call({?EMOB_USER, UserId}, {ignore_post, PostId}).
+
+%% @doc UnIgnore to a post
+-spec unignore_post(user_id(), post_id()) -> ok | error().
+unignore_post(UserId, PostId) ->
+    emob_manager:safe_call({?EMOB_USER, UserId}, {unignore_post, PostId}).
 
 %% @doc Process the incoming tweet
 %%          sent to Target
@@ -116,9 +128,19 @@ handle_call({rsvp_post, PostId}, _From, State) ->
     Response = rsvp_post_internal(UserId, PostId),
     {reply, Response, State};
 
+handle_call({unrsvp_post, PostId}, _From, State) ->
+    UserId = State#state.user_id,
+    Response = unrsvp_post_internal(UserId, PostId),
+    {reply, Response, State};
+
 handle_call({ignore_post, PostId}, _From, State) ->
     UserId = State#state.user_id,
     Response = ignore_post_internal(UserId, PostId),
+    {reply, Response, State};
+
+handle_call({unignore_post, PostId}, _From, State) ->
+    UserId = State#state.user_id,
+    Response = unignore_post_internal(UserId, PostId),
     {reply, Response, State};
 
 handle_call({set_callback, Callback}, _From, State) ->
@@ -178,10 +200,38 @@ rsvp_post_internal(UserId, PostId) ->
     Entry = #post_rsvp{id = PostId, rsvp_user = UserId},
     app_cache:set_data(?SAFE, Entry).
 
+-spec unrsvp_post_internal(user_id(), post_id()) -> ok | error().
+unrsvp_post_internal(UserId, PostId) ->
+    case get_rsvp_for_user(UserId, PostId) of
+        false ->
+            ok;
+        Entry ->
+            app_cache:remove_record(?SAFE, Entry)
+    end.
+
+-spec get_rsvp_for_user(user_id(), post_id()) -> #post_rsvp{} | false.
+get_rsvp_for_user(UserId, PostId) ->
+    Rsvps = app_cache:get_data(?POST_RSVP, PostId),
+    lists:keyfind(UserId, #post_rsvp.rsvp_user, Rsvps).
+
 -spec ignore_post_internal(user_id(), post_id()) -> ok | error().
 ignore_post_internal(UserId, PostId) ->
     Entry = #post_ignore{id = PostId, ignore_user = UserId},
     app_cache:set_data(?SAFE, Entry).
+
+-spec unignore_post_internal(user_id(), post_id()) -> ok | error().
+unignore_post_internal(UserId, PostId) ->
+    case get_ignore_for_user(UserId, PostId) of
+        false ->
+            ok;
+        Entry ->
+            app_cache:remove_record(?SAFE, Entry)
+    end.
+
+-spec get_ignore_for_user(user_id(), post_id()) -> #post_ignore{} | false.
+get_ignore_for_user(UserId, PostId) ->
+    Ignores = app_cache:get_data(?POST_IGNORE, PostId),
+    lists:keyfind(UserId, #post_ignore.ignore_user, Ignores).
 
 -spec set_callback_internal(user_id(), target()) -> #user{}.
 set_callback_internal(UserId, Target) ->

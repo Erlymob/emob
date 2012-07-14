@@ -175,9 +175,24 @@ respond_to_post(Tweet) ->
     if UserId =:= DefaultUser ->
             void;
         true ->
-            ResponseHash = "@" ++ SScreenName ++ "  erlymobaaaa",
-            lager:debug("ResponseHash:~p, Id:~p, Token:~p, Secret:~p~n", [ResponseHash, Id, Token, Secret]),
-            Result = twitterl:statuses_update({debug, foo}, [{"status", ResponseHash}, {"in_reply_to_status_id", binary_to_list(Id)}], Token, Secret),
+            Status = get_status(SScreenName),
+            lager:debug("Status:~p, Id:~p, Token:~p, Secret:~p~n", [Status, Id, Token, Secret]),
+            Result = twitterl:statuses_update({debug, foo}, [{"status", Status}, {"in_reply_to_status_id", binary_to_list(Id)}], Token, Secret),
             lager:debug("Foo:~p~n", [Result]),
             Result
     end.
+
+-spec get_status(string()) -> string().
+get_status(SScreenName) ->
+    Id = app_cache:cached_sequence_next_value(?EMOB_RECEIVER_SEQ),
+    ResponseHash = ?EMOB_RESPONSE_BASE + string:right(emob_util:build_base62(Id),
+                                                     ?EMOB_RESPONSE_CHAR_COUNT,
+                                                     ?EMOB_RESPONSE_PAD_CHAR),
+    "@" ++ SScreenName ++ " " ++ ResponseHash.
+
+    
+
+
+
+
+

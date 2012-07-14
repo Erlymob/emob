@@ -20,6 +20,7 @@
 
 -export([get_string/1]).
 -export([get_binary/1]).
+-export([build_base62/1]).
 
 -export([format_url/1]).
 
@@ -63,6 +64,19 @@ get_binary(Data) when is_list(Data) -> list_to_binary(Data);
 get_binary(Data) when is_binary(Data) -> Data;
 get_binary(_) -> {error, ?INVALID_BINARY}.
 
+get_letter(X) when X =< 9 -> $0 + X;
+get_letter(X) when X =< 35 -> $A + X - 10;
+get_letter(X) -> $a + X - 36.
+
+build_base62(Number) -> build_base62(Number, []).
+build_base62(Number, []) when Number =:= 0 -> "0";
+build_base62(Number, Acc) when Number =:= 0 -> Acc;
+build_base62(Number, Acc) when Number < 0 -> build_base62(-Number, Acc); 
+build_base62(Number, Acc) ->
+	NumberDiv = Number div 62,
+    NumberRem = Number rem 62,
+	Acc1 = [get_letter(NumberRem) | Acc],
+	build_base62(NumberDiv, Acc1).
 
 %%
 %% Parameters

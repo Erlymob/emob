@@ -20,6 +20,12 @@
 -define(EMPTY_ERROR, <<"empty_error">>).
 -define(STARTUP_TIMER, 5000).
 -define(MAX_POSTS, 200).
+
+-define(EMOB_RECEIVER_SEQ, emob_receiver_seq).
+-define(EMOB_RESPONSE_BASE, "emob").
+-define(EMOB_RESPONSE_CHAR_COUNT, 6).
+-define(EMOB_RESPONSE_PAD_CHAR, $0).
+
 % User
 -define(USER_ACCESS_TOKEN, access_token).
 -define(ID, <<"id">>).
@@ -134,38 +140,10 @@
 -define(POST_IGNORE_TTL, 60*60*24*100).
 
 
--define(TABLES, [
-            #app_metatable{
-                table = ?POST,
-                version = 1,
-                time_to_live = ?POST_TTL,
-                type = ordered_set},
-
-            #app_metatable{
-                table = ?POST_RSVP,
-                version = 1,
-                time_to_live = ?POST_RSVP_TTL,
-                type = bag},
-
-            #app_metatable{
-                table = ?POST_IGNORE,
-                version = 1,
-                time_to_live = ?POST_IGNORE_TTL,
-                type = bag},
-
-            #app_metatable{
-                table = ?USER,
-                version = 1,
-                time_to_live = ?POST_IGNORE_TTL,
-                type = bag,
-                secondary_index_fields = [access_token]
-                }
-            ]).
--define(FOO, fields(post)).
 
 %% All tables must have a field called timestamp. Somewhere. For sure.
 -define(POST, post).
--record(post, {
+-record(?POST, {
           id                                        :: twitter_id(),
           timestamp                                 :: timestamp(),
           location                                  :: any(),
@@ -175,14 +153,14 @@
 
 
 -define(POST_RSVP, post_rsvp).
--record(post_rsvp, {
+-record(?POST_RSVP, {
           id                                        :: post_id(),
           timestamp                                 :: timestamp(),
           rsvp_user                                 :: user_id()
          }).
 
 -define(POST_IGNORE, post_ignore).
--record(post_ignore, {
+-record(?POST_IGNORE, {
           id                                        :: post_id(),
           timestamp                                 :: timestamp(),
           ignore_user                               :: user_id()
@@ -190,7 +168,7 @@
 
 
 -define(USER, user).
--record(user, {
+-record(?USER, {
           id                                        :: twitter_id(),
           timestamp                                 :: timestamp(),
           location                                  :: any(),
@@ -202,5 +180,4 @@
           last_post_processed = ?FIRST_POST         :: post_id(),
           callback                                  :: target()
          }).
-
 

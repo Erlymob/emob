@@ -134,9 +134,9 @@ handle_get([<<"rsvp">>], Req0, _State) ->
                 {undefined, Req} ->
                     cowboy_http_req:reply(400, Req);   %% bad request
                 {Token, Req} ->
-                    emob_user:rsvp_post(Token, PostId),
+                    Going = emob_user:toggle_post_rsvp(Token, PostId),
 
-                    Response = ejson:encode({[{<<"going">>, true}]}),
+                    Response = ejson:encode({[{<<"going">>, Going}]}),
                     cowboy_http_req:reply(200, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req)
             end
     end;

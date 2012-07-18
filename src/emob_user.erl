@@ -36,6 +36,7 @@
 -export([get_posts/1]).
 -export([rsvp_post/2]).
 -export([unrsvp_post/2]).
+-export([toggle_post_rsvp/2]).
 -export([ignore_post/2]).
 -export([unignore_post/2]).
 -export([process_post/2]).
@@ -124,6 +125,11 @@ rsvp_post(UserId, PostId) ->
 unrsvp_post(UserId, PostId) ->
     emob_manager:safe_call({?EMOB_USER, UserId}, {unrsvp_post, PostId}).
 
+%% @doc Toggle the RSVP status of a post
+-spec toggle_post_rsvp(user_id(), post_id()) -> ok | error().
+toggle_post_rsvp(UserId, PostId) ->
+    emob_manager:safe_call({?EMOB_USER, UserId}, {toggle_post_rsvp, PostId}).
+
 %% @doc Ignore to a post
 -spec ignore_post(user_id(), post_id()) -> ok | error().
 ignore_post(UserId, PostId) ->
@@ -204,6 +210,11 @@ handle_call({rsvp_post, PostId}, _From, State) ->
 handle_call({unrsvp_post, PostId}, _From, State) ->
     UserId = State#state.user_id,
     Response = unrsvp_post_internal(UserId, PostId),
+    {reply, Response, State};
+
+handle_call({toggle_post_rsvp, PostId}, _From, State) ->
+    UserId = State#state.user_id,
+    Response = toggle_post_rsvp_internal(UserId, PostId),
     {reply, Response, State};
 
 handle_call({ignore_post, PostId}, _From, State) ->
@@ -384,7 +395,6 @@ unrsvp_post_internal(UserId, PostId) ->
             app_cache:remove_record(?SAFE, Entry)
     end.
 
-%% @doc What are the rsvps for a given user?
 -spec get_rsvp_for_user(user_id(), post_id()) -> #post_rsvp{} | false.
 get_rsvp_for_user(UserId, PostId) ->
     Rsvps = app_cache:get_data(?POST_RSVP, PostId),

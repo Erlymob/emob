@@ -17,17 +17,23 @@
 -define(INVALID_BOOLEAN, <<"invalid_boolean">>).
 -define(INVALID_BINARY, <<"invalid_binary">>).
 -define(INVALID_STRING, <<"invalid_string">>).
+-define(INVALID_INTEGER, <<"invalid_integer">>).
 -define(EMPTY_ERROR, <<"empty_error">>).
+-define(TWITTER_ERROR, <<"twitter_error">>).
 -define(STARTUP_TIMER, 5000).
 -define(MAX_POSTS, 200).
 
 -define(EMOB_RECEIVER_SEQ, emob_receiver_seq).
--define(EMOB_RESPONSE_BASE, "emob").
+-define(EMOB_RESPONSE_BASE, "#mob").
 -define(EMOB_RESPONSE_CHAR_COUNT, 6).
 -define(EMOB_RESPONSE_PAD_CHAR, $0).
 
+-define(EMOB_REQUEST_CACHED, cached).
+-define(EMOB_REQUEST_LIVE, live).
+
 % User
 -define(USER_ACCESS_TOKEN, access_token).
+-define(USER_TWITTER_ID, twitter_id).
 -define(ID, <<"id">>).
 
 
@@ -54,80 +60,19 @@
 
 
 %% TWITTER SPECIFIC RECORDS
+-include("../deps/twitterl/include/twitterl.hrl").
 
--record(twitter_token_data, {
-            access_token            :: binary(),
-            access_token_secret     :: binary()
-            }).
+%% EMOB LOCATION DATA
 
--record(twitter_access_data, {
-            access_token            :: binary(),
-            access_token_secret     :: binary(),
-            user_id                 :: binary(),
-            screen_name             :: binary()
-            }).
-
--record(oauth_step_1, {
-            access_token            :: binary(),
-            access_token_secret     :: binary()
-            }).
-
--record(oauth_step_2, {
-            access_token            :: binary(),
-            access_verifier         :: binary()
-            }).
-
-%% Twitter
-
--record(bounding_box, {
-            type          :: binary(),
-            coordinates   :: list()
-            }).
-
--record(twitter_place, {
-            id            :: binary(),
-            url           :: binary(),
-            place_type    :: binary(),
-            name          :: binary(),
-            full_name     :: binary(),
-            country_code  :: binary(),
-            country       :: binary(),
-            bounding_box  :: #bounding_box{}
-            }).
-
--record(twitter_user, {
-            id_str        :: binary(),
-            id            :: integer(),
-            name          :: binary(),
-            screen_name   :: binary(),
-            location      :: any(),
-            description   :: any(),
-            profile_image_url   :: any()
-            }).
-
--record(entity_url, {
-            url           :: binary(),
-            expanded_url  :: binary(),
-            display_url   :: binary()
-            }).
-
--record(entities, {
-            hashtags      :: list(),
-            urls          :: list()
-            }).
-
--record(tweet, {
-            id_str        :: binary(),
-            id            :: integer(),
-            text          :: binary(),
-            coordinates   :: any(),
-            place         :: any(),
-            created_at    :: any(),
-            user          :: #twitter_user{},
-            entities      :: #entities{}
-            }).
-
-
+-define(LOCATION_TYPE_TWITTER, twitter).
+-define(LOCATION_TYPE_WEB, web).
+-define(LOCATION_DATA, location_data).
+-record(?LOCATION_DATA, {
+          type                                      :: atom(),
+          location = <<>>                           :: binary(),
+          geo = null                                :: #bounding_box{},
+          timestamp                                 :: epoch()
+         }).
 
 
 %% APP_CACHE defines and records
@@ -169,15 +114,16 @@
 
 -define(USER, user).
 -record(?USER, {
-          id                                        :: twitter_id(),
+          id                                        :: user_id(),
           timestamp                                 :: timestamp(),
-          location                                  :: any(),
+          locations = []                            :: [#location_data{}],
           access_token                              :: token(),
           access_token_secret                       :: secret(),
           screen_name                               :: screen_name(),
-          user_id                                   :: user_id(),
+          twitter_id                                :: twitter_id(),
           profile_picture                           :: profile_picture(),
           last_post_processed = ?FIRST_POST         :: post_id(),
-          callback                                  :: target()
+          callback                                  :: target(),
+          tweet                                    :: #tweet{}
          }).
 

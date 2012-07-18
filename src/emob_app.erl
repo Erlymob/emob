@@ -44,4 +44,4 @@ get_table_info(?POST_RSVP) ->
 get_table_info(?POST_IGNORE) ->
     app_cache_table_info:table_info(?POST_IGNORE, bag, 10*24*60*60);
 get_table_info(?USER) ->
-    app_cache_table_info:table_info(?USER, set, infinity, [access_token]).
+    app_cache_table_info:table_info(?USER, set, infinity, [access_token, twitter_id]).

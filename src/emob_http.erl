@@ -19,7 +19,6 @@
 %% ------------------------------------------------------------------
 
 -export([init/3, handle/2, terminate/2]).
--export([twitter_time_to_epoch/1, twitter_time_to_datetime/1]).
 
 
 %% ------------------------------------------------------------------
@@ -149,8 +148,8 @@ handle_get([<<"get_loc">>], Req0, _State) ->
             cowboy_http_req:reply(400, Req);   %% bad request
         %% /get_loc?token=:token
         Token ->
-            case emob_user:get_user(Token) of
-                [#user{location = Location}] ->
+            case emob_user:get_user_location(Token, ?LOCATION_TYPE_TWITTER) of
+                Location when is_record(Location, location_data) ->
                     {Lat, Lon} = location_center(Location),
                     Response = ejson:encode({[{<<"latitude">>, Lat}, {<<"longitude">>, Lon}]}),
                     cowboy_http_req:reply(200, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req);
@@ -325,87 +324,10 @@ json_post(Post) ->
     ejson:encode(post_to_ejson(Post)).
 
 json_posts(Posts) ->
-    ConvertedPosts = [convert_post_time(Post) || Post <- Posts],
-    SortedPosts = lists:sort(fun compare_post/2, ConvertedPosts),
+    SortedPosts = lists:sort(fun compare_post/2, Posts),
     ejson:encode([post_to_ejson(SortedPost) || SortedPost <- SortedPosts]).
-
-convert_post_time(#post{post_data = Tweet} = Post) ->
-    Time = Tweet#tweet.created_at,
-    NewTweet = Tweet#tweet{created_at = twitter_time_to_epoch(Time)},
-    Post#post{post_data = NewTweet}.
 
 compare_post(#post{post_data = T1}, #post{post_data = T2}) ->
     T1#tweet.created_at > T2#tweet.created_at.
 
-
-%% Tuple containing a date and time.
--type datetime()                                :: {calendar:date(), {calendar:hour(), calendar:minute(), calendar:second() | float()}}.
-%% A floating point number representing the number of seconds elapsed since
-%% Jan 1, 1970, 00:00:00 (Unix epoch).
--type epoch()                                   :: non_neg_integer() | float().
-
-%% Days between Jan 1, 0001 (beginning of the Gregorian calendar) and Jan 1, 1970 (Unix epoch) in seconds.
-%% 62167219200 = calendar:datetime_to_gregorian_seconds({{1970,1,1},{0,0,0}}).
--define(SECONDS_TO_UNIX_EPOCH, 62167219200).
-
-%% @doc Convert a date and time as binary string in the ISO 8601 format to the
-%%      number of seconds since the Unix epoch (Jan 1, 1970, 00:00:00) with
-%%      millisecond precision.
--spec twitter_time_to_epoch(binary()) -> epoch().
-twitter_time_to_epoch(TwitterDatetime) when is_binary(TwitterDatetime) ->
-    datetime_to_epoch(twitter_time_to_datetime(TwitterDatetime));
-twitter_time_to_epoch(_TwitterDatetime) ->
-    null.
-
-%% @doc Convert a datetime in the format returned by the calendar:universal_time/0 function
-%%      into a timestamp as a floating-point with the number of seconds since
-%%      the Unix Epoch (Jan 1, 1970, 00:00:00) and a precision of microseconds.
--spec datetime_to_epoch(datetime()) -> epoch().
-datetime_to_epoch({{_Year, _Month, _Day}, {_Hour, _Min, Sec}} = Datetime) when is_integer(Sec) ->
-    calendar:datetime_to_gregorian_seconds(Datetime) - ?SECONDS_TO_UNIX_EPOCH;
-datetime_to_epoch({{_Year, _Month, _Day} = Date, {Hour, Min, Sec}}) when is_float(Sec) ->
-    TruncatedSec = trunc(Sec),
-    Subsec = round((Sec - TruncatedSec) * 1000000.0) / 1000000.0,
-    float(calendar:datetime_to_gregorian_seconds({Date, {Hour, Min, TruncatedSec}}) - ?SECONDS_TO_UNIX_EPOCH) + Subsec.
-
-
-%% @doc Convert a datetime in the format used by Twitter to a date and time in the
-%%      format returned by calendar:universal_time/0.
--spec twitter_time_to_datetime(binary()) -> datetime().
-twitter_time_to_datetime(<<_DDD:3/binary, " ", MMM:3/binary, " ", DD:2/binary, " ",
-                      Hh:2/binary, $:, Mm:2/binary, $:, Ss:2/binary, " ",
-                      Sign, TzHour:2/binary, TzMin:2/binary, " ", YYYY:4/binary, _Tail/binary>>) ->
-    Month = month(MMM),
-    Date1 = {bstr:to_integer(YYYY), Month, bstr:to_integer(DD)},
-    Hour1 = bstr:to_integer(Hh),
-    Min1 = bstr:to_integer(Mm),
-    Sec1 = bstr:to_integer(Ss),
-
-    if
-        TzHour =:= <<"00">> andalso TzMin =:= <<"00">> ->
-            {Date1, {Hour1, Min1, Sec1}};
-        true ->
-            LocalSec = calendar:datetime_to_gregorian_seconds({Date1, {Hour1, Min1, Sec1}}),
-            %% Convert the the seconds in the local timezone to UTC.
-            UtcSec = case ((bstr:to_integer(TzHour) * 3600 + bstr:to_integer(TzMin)) * 60) of
-                         Offset when Sign =:= $- -> LocalSec - Offset;
-                         Offset                  -> LocalSec + Offset
-                     end,
-            calendar:gregorian_seconds_to_datetime(UtcSec)
-    end;
-twitter_time_to_datetime(_TwitterDatetime) ->
-    null.
-
-
-month(<<"Jan">>) ->  1;
-month(<<"Feb">>) ->  2;
-month(<<"Mar">>) ->  3;
-month(<<"Apr">>) ->  4;
-month(<<"Jun">>) ->  6;
-month(<<"Jul">>) ->  7;
-month(<<"Aug">>) ->  8;
-month(<<"Sep">>) ->  9;
-month(<<"Oct">>) -> 10;
-month(<<"Nov">>) -> 11;
-month(<<"Dec">>) -> 12.
 

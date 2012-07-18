@@ -24,8 +24,14 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([get_user/1]).
+-export([get_user/1, get_user/2]).
+-export([get_user_locations/1, get_user_locations/2]).
+-export([get_user_location/2, get_user_location/3]).
+-export([set_user_location/2]).
+-export([update_user_from_post/1]).
 -export([set_callback/2]).
+
+-export([get_default_twitter_user/2]).
 
 -export([get_posts/1]).
 -export([rsvp_post/2]).
@@ -33,13 +39,13 @@
 -export([ignore_post/2]).
 -export([unignore_post/2]).
 -export([process_post/2]).
--export([notify_all_users/1]).
+-export([notify_users/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/1]).
+-export([start_link/3]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 %% ------------------------------------------------------------------
@@ -48,7 +54,9 @@
 -include("defaults.hrl").
 
 -record(state, {
-            user_id
+            token                   :: token(),
+            secret                  :: secret(),
+            user_id                 :: user_id()
             }).
 
 %% ------------------------------------------------------------------
@@ -56,12 +64,49 @@
 %% ------------------------------------------------------------------
 %%% USER
 %% @doc Get the User profile
+-spec get_user(user_id()) -> #twitter_user{} | error().
 get_user(UserId) ->
-    emob_manager:safe_call({?EMOB_USER, UserId}, {get_user}).
+    emob_manager:safe_call({?EMOB_USER, UserId}, {get_user, ?SAFE}).
+
+-spec get_user(user_id(), emob_request_type()) -> #twitter_user{} | error().
+get_user(UserId, RequestType) ->
+    emob_manager:safe_call({?EMOB_USER, UserId}, {get_user, RequestType}).
+
+-spec get_user_locations(user_id()) -> #twitter_user{} | error().
+get_user_locations(UserId) ->
+    emob_manager:safe_call({?EMOB_USER, UserId}, {get_user_locations, ?SAFE}).
+
+-spec get_user_locations(user_id(), emob_request_type()) -> #twitter_user{} | error().
+get_user_locations(UserId, RequestType) ->
+    emob_manager:safe_call({?EMOB_USER, UserId}, {get_user_locations, RequestType}).
+
+-spec get_user_location(user_id(), emob_location_type()) -> #twitter_user{} | error().
+get_user_location(UserId, LocationType) ->
+    emob_manager:safe_call({?EMOB_USER, UserId}, {get_user_location, LocationType, ?SAFE}).
+
+-spec get_user_location(user_id(), emob_location_type(), emob_request_type()) -> #twitter_user{} | error().
+get_user_location(UserId, LocationType, RequestType) ->
+    emob_manager:safe_call({?EMOB_USER, UserId}, {get_user_location, LocationType, RequestType}).
+
+-spec set_user_location(user_id(), #location_data{}) -> #twitter_user{} | error().
+set_user_location(UserId, Location) ->
+    emob_manager:safe_call({?EMOB_USER, UserId}, {set_user_location, Location}).
+
+-spec update_user_from_post(#post{}) -> #user{} | error().
+update_user_from_post(Post) ->
+    UserId = ((Post#post.post_data)#tweet.user)#twitter_user.id_str,
+    emob_manager:safe_call({?EMOB_USER, UserId}, {update_user_from_post, Post}).
 
 -spec set_callback(user_id(), target()) -> ok | error().
 set_callback(UserId, Callback) ->
     emob_manager:safe_call({?EMOB_USER, UserId}, {set_callback, Callback}).
+
+%%% TWITTER
+%% @doc Get the Default User's Profile
+-spec get_default_twitter_user(token(), secret()) -> #twitter_user{} | error().
+get_default_twitter_user(Token, Secret) ->
+    get_default_twitter_user_internal(Token, Secret).
+
 
 %%% POSTS
 %% @doc Retrieve the latest posts from the user
@@ -96,7 +141,7 @@ process_post(UserId, PostId) ->
 
 %% @doc Notify all the users that a new post exists
 % TODO have callback users in a seperate table, efficiently notify them, etc.
-notify_all_users(Post) ->
+notify_users(Post) ->
     UserFun = fun() -> mnesia:foldl(fun(X, Acc) ->
                     CallbackPid = X#user.callback,
                     twitterl:respond_to_target({process, CallbackPid}, {post, Post}),
@@ -108,19 +153,47 @@ notify_all_users(Post) ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
-start_link(UserId) ->
-    gen_server:start_link(?MODULE, [UserId], []).
+start_link(Token, Secret, UserId) ->
+    gen_server:start_link(?MODULE, [Token, Secret, UserId], []).
 
-init([UserId]) ->
+init([Token, Secret, UserId]) ->
     emob_manager:register_process(?EMOB_USER, UserId),
     % get data from the cache
-    State = #state{user_id = UserId},
+    State = #state{token = Token,
+                   secret = Secret,
+                   user_id = UserId},
     {ok, State}.
 
-handle_call({get_user}, _From, State) ->
+handle_call({get_user, RequestType}, _From, State) ->
     UserId = State#state.user_id,
-    User = get_user_data(UserId),
+    Token = State#state.token,
+    Secret = State#state.secret,
+    User = get_user_internal(UserId, RequestType, Token, Secret),
+    lager:debug("User:~p~n", [User]),
     Response = validate_user(User),
+    {reply, Response, State};
+
+handle_call({get_user_location, LocationType, RequestType}, _From, State) ->
+    UserId = State#state.user_id,
+    Token = State#state.token,
+    Secret = State#state.secret,
+    Location = get_user_location_internal(UserId, LocationType, RequestType, Token, Secret),
+    {reply, Location, State};
+
+handle_call({get_user_locations, RequestType}, _From, State) ->
+    UserId = State#state.user_id,
+    Token = State#state.token,
+    Secret = State#state.secret,
+    Locations = get_user_locations_internal(UserId, RequestType, Token, Secret),
+    {reply, Locations, State};
+
+handle_call({set_user_location, Location}, _From, State) ->
+    UserId = State#state.user_id,
+    Result = set_user_location_internal(UserId, Location),
+    {reply, Result, State};
+
+handle_call({update_user_from_post, Post}, _From, State) ->
+    Response = update_user_from_post_internal(Post),
     {reply, Response, State};
 
 handle_call({rsvp_post, PostId}, _From, State) ->
@@ -150,7 +223,9 @@ handle_call({set_callback, Callback}, _From, State) ->
 
 handle_call({get_posts}, _From, State) ->
     UserId = State#state.user_id,
-    User = get_user_data(UserId),
+    Token = State#state.token,
+    Secret = State#state.secret,
+    User = get_user_internal(UserId, ?DIRTY, Token, Secret),
     Posts = update_posts_from_cache(User),
     {reply, {ok, Posts}, State};
 
@@ -159,7 +234,9 @@ handle_call(_Request, _From, State) ->
 
 handle_cast({process_post, PostId}, State) ->
     UserId = State#state.user_id,
-    User = get_user_data(UserId),
+    Token = State#state.token,
+    Secret = State#state.secret,
+    User = get_user_internal(UserId, ?DIRTY, Token, Secret),
     notify_user(User, PostId),
     {noreply, State};
 
@@ -179,15 +256,65 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
-validate_user(User) ->
-    if User#user.id  =/= undefined ->
-            User;
-        true ->
-            {error, ?INVALID_USER}
+%% @doc Identify the twitter user that this application is running as
+-spec get_default_twitter_user_internal(token(), secret()) -> #twitter_user{} | error().
+get_default_twitter_user_internal(Token, Secret) ->
+    SToken = util:get_string(Token),
+    SSecret = util:get_string(Secret),
+    case twitterl:account_verify_credentials({self, self}, [], SToken, SSecret) of
+        TwitterUser when is_record(TwitterUser, twitter_user) ->
+            TwitterUser;
+        Error ->
+            lager:error("Error getting default user:~p~n", [Error]),
+            Error
     end.
 
--spec get_user_data(user_id()) -> #user{}.
-get_user_data(UserId) ->
+%% @doc Get all the user's locations
+-spec get_user_locations_internal(user_id(), emob_request_type(), token(), secret()) -> #location_data{}.
+get_user_locations_internal(UserId, RequestType, Token, Secret) ->
+    case get_user_internal(UserId, RequestType, Token, Secret) of
+        User when is_record(User, user) ->
+            User#user.locations;
+        Error ->
+            Error
+    end.
+
+%% @doc Get the value of a given location_type from the user's locations
+-spec get_user_location_internal(user_id(), emob_location_type(), emob_request_type(), token(), secret()) -> #location_data{}.
+get_user_location_internal(UserId, LocationType, RequestType, Token, Secret) ->
+    case get_user_internal(UserId, RequestType, Token, Secret) of
+        User when is_record(User, user) ->
+            get_location(LocationType, User#user.locations);
+        Error ->
+            Error
+    end.
+
+%% @doc Set the user's location based on whateer the API sends in.
+%%      Can possibly overwrite data received from elsewhere
+-spec set_user_location_internal(user_id(), #location_data{}) -> #location_data{} | error().
+set_user_location_internal(UserId, Location) ->
+    case get_user_internal(UserId, ?DIRTY, undefined, undefined) of
+        User when is_record(User, user) ->
+            NewLocations = update_locations(Location, User#user.locations, true),
+            NewUser = User#user{locations = NewLocations},
+            app_cache:set_data(NewUser),
+            Location;
+        Error ->
+            Error
+    end.
+
+%% @doc Get a user's data from twitter, update the local version, and return it
+-spec get_user_internal(user_id(), emob_request_type(), token(), secret()) -> #user{}.
+get_user_internal(UserId, ?SAFE, Token, Secret) ->
+    TwitterUser = get_user_data_from_twitter(UserId, Token, Secret),
+    lager:debug("TwitterUser:~p, UserId:~p~n", [TwitterUser, UserId]),
+    if TwitterUser#twitter_user.id_str =:= UserId ->
+            update_user_from_twitter_user(TwitterUser);
+        true ->
+            {error, {?TWITTER_ERROR, UserId}}
+    end;
+%% @doc Return the cached version of the user's data
+get_user_internal(UserId, ?DIRTY, _Token, _Secret) ->
     case app_cache:get_data(?DIRTY, ?USER, UserId) of
         [User] ->
             User;
@@ -195,11 +322,59 @@ get_user_data(UserId) ->
             #user{}
     end.
 
+-spec get_user_from_twitter_id(user_id()) -> #user{}.
+get_user_from_twitter_id(UserId) ->
+    case app_cache:get_data_from_index(?SAFE, ?USER, UserId, ?USER_TWITTER_ID) of
+        [User] ->
+            User;
+        _ ->
+            #user{}
+    end.
+
+%% @doc Retrieve a user's data from twitter
+-spec get_user_data_from_twitter(user_id(), token(), secret()) -> #twitter_user{} | false.
+get_user_data_from_twitter(UserId, Token, Secret) ->
+    SUserId = util:get_string(UserId),
+    twitterl:users_show({self, self}, [{"user_id", SUserId}], Token, Secret).
+
+%% @doc Update a user based on the data in the tweet
+%%      If the user doesnt exist, it gets created
+-spec update_user_from_twitter_user(#twitter_user{}) -> #user{}.
+update_user_from_twitter_user(TwitterUser) ->
+    TwitterUserId = TwitterUser#twitter_user.id_str,
+    User = get_user_from_twitter_id(TwitterUserId),
+    update_user_data_from_twitter(User, TwitterUser).
+
+-spec update_user_data_from_twitter(#user{}, #twitter_user{}) -> #user{}.
+update_user_data_from_twitter(User, TwitterUser) ->
+    lager:debug("User:~p~n", [User]),
+    Location = #location_data{type = ?LOCATION_TYPE_TWITTER, 
+                             location = TwitterUser#twitter_user.location,
+                             geo = geo_from_tweet(TwitterUser#twitter_user.status),
+                             timestamp = timestamp_from_tweet(TwitterUser#twitter_user.status)},
+    lager:debug("Location:~p~n", [Location]),
+    NewLocations = update_locations(Location, User#user.locations, false),
+    NewUser = User#user{locations = NewLocations,
+              tweet = TwitterUser#twitter_user.status},
+    app_cache:set_data(NewUser),
+    NewUser.
+
+%% @doc Update a user's info based on the info in the received tweet
+-spec update_user_from_post_internal(#post{}) -> #user{} | error().
+update_user_from_post_internal(Post) ->
+    % Blank out user in the tweet
+    Tweet = (Post#post.post_data)#tweet{user = undefined},
+    % Set the user's status to this post
+    TwitterUser = ((Post#post.post_data)#tweet.user)#twitter_user{status = Tweet},
+    update_user_from_twitter_user(TwitterUser).
+
+%% @doc Rsvp a post for a given user
 -spec rsvp_post_internal(user_id(), post_id()) -> ok | error().
 rsvp_post_internal(UserId, PostId) ->
     Entry = #post_rsvp{id = PostId, rsvp_user = UserId},
     app_cache:set_data(?SAFE, Entry).
 
+%% @doc Unrsvp a post for a given user
 -spec unrsvp_post_internal(user_id(), post_id()) -> ok | error().
 unrsvp_post_internal(UserId, PostId) ->
     case get_rsvp_for_user(UserId, PostId) of
@@ -209,16 +384,19 @@ unrsvp_post_internal(UserId, PostId) ->
             app_cache:remove_record(?SAFE, Entry)
     end.
 
+%% @doc What are the rsvps for a given user?
 -spec get_rsvp_for_user(user_id(), post_id()) -> #post_rsvp{} | false.
 get_rsvp_for_user(UserId, PostId) ->
     Rsvps = app_cache:get_data(?POST_RSVP, PostId),
     lists:keyfind(UserId, #post_rsvp.rsvp_user, Rsvps).
 
+%% @doc Ignore a given post for a user
 -spec ignore_post_internal(user_id(), post_id()) -> ok | error().
 ignore_post_internal(UserId, PostId) ->
     Entry = #post_ignore{id = PostId, ignore_user = UserId},
     app_cache:set_data(?SAFE, Entry).
 
+%% @doc Unignore a given post for a user
 -spec unignore_post_internal(user_id(), post_id()) -> ok | error().
 unignore_post_internal(UserId, PostId) ->
     case get_ignore_for_user(UserId, PostId) of
@@ -228,11 +406,13 @@ unignore_post_internal(UserId, PostId) ->
             app_cache:remove_record(?SAFE, Entry)
     end.
 
+%% @doc What posts are ignored by a given user?
 -spec get_ignore_for_user(user_id(), post_id()) -> #post_ignore{} | false.
 get_ignore_for_user(UserId, PostId) ->
     Ignores = app_cache:get_data(?POST_IGNORE, PostId),
     lists:keyfind(UserId, #post_ignore.ignore_user, Ignores).
 
+%% @doc Set the callback for a given user to something :-)
 -spec set_callback_internal(user_id(), target()) -> #user{}.
 set_callback_internal(UserId, Target) ->
     case app_cache:get_data(?SAFE, ?USER, UserId) of
@@ -242,6 +422,7 @@ set_callback_internal(UserId, Target) ->
             {error, ?INVALID_USER}
     end.
 
+%% @doc Return all the posts since the last one that the user processed.
 -spec update_posts_from_cache(#user{}) -> list().
 update_posts_from_cache(User) ->
     case app_cache:get_after(?DIRTY, ?POST, User#user.last_post_processed) of
@@ -259,6 +440,7 @@ update_posts_from_cache(User) ->
             []
     end.
 
+%% @doc Send the post to a given user
 notify_user(User, PostId) ->
     TargetPid = User#user.callback,
     case TargetPid =/= undefined of
@@ -268,3 +450,59 @@ notify_user(User, PostId) ->
         false ->
             void
     end.
+
+%% @doc Get a specific location for a user. If it doesnt exist, create an empty
+%%      one
+-spec get_location(emob_location_type(), [#location_data{}]) -> #location_data{} | false.
+get_location(LocationType, Locations) ->
+    case lists:keyfind(LocationType, #location_data.type, Locations) of
+        Location when is_record(Location, location_data) ->
+            Location;
+        false ->
+            #location_data{type = LocationType, 
+                           timestamp = util:datetime_to_epoch(calendar:universal_time())}
+    end.
+
+%% @doc Update the list of #location_data{} for a user
+-spec update_locations(#location_data{}, [#location_data{}], boolean()) -> #location_data{}.
+update_locations(Location, Locations, UseTimestamp) ->
+    LocationType = Location#location_data.type,
+    OldLocation = get_location(LocationType, Locations),
+    case is_same_location(OldLocation, Location, UseTimestamp) of
+        false ->
+            Locations;
+        true -> 
+            lists:keystore(LocationType, #location_data.type, Locations, Location)
+    end.
+
+%% @doc Are the two locations the same? UserTimestamp is used to check w/ and
+%%      w/out the timestamp field
+-spec is_same_location(#location_data{}, #location_data{}, boolean()) -> boolean().
+is_same_location(OldLocation, Location, _UseTimestamp = true) ->
+    (OldLocation#location_data.geo =:= Location#location_data.geo) andalso
+    (OldLocation#location_data.location =:= Location#location_data.geo);
+is_same_location(OldLocation, Location, _UseTimestamp = false) ->
+    OldLocation =:= Location.
+
+%% @doc extract the geo information from a tweet
+-spec geo_from_tweet(#tweet{} | null) -> #bounding_box{} | null.
+geo_from_tweet(Tweet) when is_record(Tweet, tweet) ->
+    Tweet#tweet.geo;
+geo_from_tweet(_) -> null.
+
+%% @doc extract the timestamp from a tweet
+-spec timestamp_from_tweet(#tweet{} | null) -> epoch().
+timestamp_from_tweet(Tweet) when is_record(Tweet, tweet) ->
+    Tweet#tweet.created_at;
+timestamp_from_tweet(_) ->
+    null.
+
+%% @doc Make sure that this is actually a valid user
+-spec validate_user(#user{}) -> #user{} | error().
+validate_user(User) ->
+    if User#user.id  =/= undefined ->
+            User;
+        true ->
+            {error, ?INVALID_USER}
+    end.
+

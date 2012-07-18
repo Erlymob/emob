@@ -46,7 +46,9 @@
 -include("defaults.hrl").
 
 -record(post_receiver_state, {
-            stream_pid
+            default_user_id             :: user_id(),
+            default_user_screen_name    :: screen_name(),
+            stream_pid                  :: pid()
             }).
 
 %% ------------------------------------------------------------------
@@ -99,8 +101,10 @@ init([Token, Secret]) ->
     emob_manager:register_process(?EMOB_POST_RECEIVER, ?EMOB_POST_RECEIVER),
     DestPid = self(),
     process_tweets(DestPid, Token, Secret),
+    DefaultUser = emob_user:get_default_twitter_user(Token, Secret),
 
-    State = #post_receiver_state{},
+    State = #post_receiver_state{default_user_screen_name = DefaultUser#twitter_user.screen_name,
+                                 default_user_id = DefaultUser#twitter_user.id_str},
     {ok, State}.
 
 
@@ -110,7 +114,6 @@ handle_call(_Request, _From, State) ->
 
 handle_cast({process_post, Tweet}, State) ->
     % TODO error?
-    lager:debug("2,process_post  Tweet:~p~n", [Tweet]),
     PostId = Tweet#tweet.id,
     case app_cache:key_exists(?SAFE, ?POST, PostId) of
         false ->
@@ -118,7 +121,7 @@ handle_cast({process_post, Tweet}, State) ->
                     id = PostId,
                     post_data = Tweet},
             app_cache:set_data(?SAFE, PostRecord),
-            respond_to_post(Tweet),
+            respond_to_post(Tweet, State),
             emob_post_distributor:distribute_post(PostId);
         true ->
             ok
@@ -155,7 +158,7 @@ process_tweets(DestPid, Token, Secret) ->
         [Post] ->
             Post#post.id
     end,
-    SSinceId = emob_util:get_string(SinceId),
+    SSinceId = util:get_string(SinceId),
     proc_lib:spawn_link(fun() ->
                 %% TODO fix this so this happens only after init is completed
                 timer:sleep(?STARTUP_TIMER),
@@ -164,28 +167,27 @@ process_tweets(DestPid, Token, Secret) ->
                 twitterl:statuses_user_timeline_stream({process, DestPid}, [], Token, Secret)
         end).
 
-respond_to_post(Tweet) ->
+-spec respond_to_post(#tweet{}, #post_receiver_state{}) -> any().
+respond_to_post(Tweet, State) ->
     Id = Tweet#tweet.id_str,
-    UserId = (Tweet#tweet.user)#twitter_user.id,
+    UserId = (Tweet#tweet.user)#twitter_user.id_str,
     ScreenName = (Tweet#tweet.user)#twitter_user.screen_name,
-    SScreenName = emob_util:get_string(ScreenName),
-    DefaultUser = twitterl:get_env(default_user_id, <<"undefined">>),
+    SScreenName = util:get_string(ScreenName),
+    DefaultUserId = State#post_receiver_state.default_user_id,
     Token = twitterl:get_env(oauth_access_token, <<"undefined">>),
     Secret = twitterl:get_env(oauth_access_token_secret, <<"undefined">>),
-    if UserId =:= DefaultUser ->
+    if UserId =:= DefaultUserId ->
             void;
         true ->
             Status = get_status(SScreenName),
-            lager:debug("Status:~p, Id:~p, Token:~p, Secret:~p~n", [Status, Id, Token, Secret]),
             Result = twitterl:statuses_update({debug, foo}, [{"status", Status}, {"in_reply_to_status_id", binary_to_list(Id)}], Token, Secret),
-            lager:debug("Foo:~p~n", [Result]),
             Result
     end.
 
 -spec get_status(string()) -> string().
 get_status(SScreenName) ->
     Id = app_cache:cached_sequence_next_value(?EMOB_RECEIVER_SEQ),
-    ResponseHash = ?EMOB_RESPONSE_BASE + string:right(emob_util:build_base62(Id),
+    ResponseHash = ?EMOB_RESPONSE_BASE ++ string:right(util:get_base62(Id),
                                                      ?EMOB_RESPONSE_CHAR_COUNT,
                                                      ?EMOB_RESPONSE_PAD_CHAR),
     "@" ++ SScreenName ++ " " ++ ResponseHash.

@@ -49,5 +49,8 @@ start_link() ->
 %% ===================================================================
 
 init([]) ->
-    User = ?CHILD(make_ref(), worker, emob_user, []),
+    Token = twitterl:get_env(oauth_access_token, <<"undefined">>),
+    Secret = twitterl:get_env(oauth_access_token_secret, <<"undefined">>),
+    User = ?CHILD(make_ref(), worker, emob_user, [Token, Secret]),
     {ok, { {simple_one_for_one, 5, 300}, [User]} }.
+

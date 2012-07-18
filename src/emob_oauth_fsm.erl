@@ -61,14 +61,12 @@ start_link() ->
 -spec get_request_token(url()) -> #twitter_token_data{} | error().
 get_request_token(CallbackURL) ->
     {ok, Pid} = start_authorizer(),
-    lager:debug("Pid:~p~n", [Pid]),
     request_token(Pid, CallbackURL).
 
            
 %% @doc Get an access token.
 -spec get_access_token(token(), verifier()) -> #twitter_access_data{} | error().
 get_access_token(Token, Verifier) ->
-    lager:debug("Token:~p, Verifier:~p~n", [Token, Verifier]),
     case authorize_user(Token, Verifier) of
         {ok, AccessData} ->
             store_credentials(AccessData),
@@ -76,7 +74,6 @@ get_access_token(Token, Verifier) ->
             stop_authorizer(Token),
             AccessData;
         Error ->
-            lager:debug("error:~p~n", [Error]),
             Error
     end.
 
@@ -127,38 +124,29 @@ token_requested(_Event, State) ->
     {next_state, token_requested, State}.
 
 token_requested({authorize, Verifier}, _From, State) ->
-    lager:debug("a, Verifier:~p~n, State:~p~n", [Verifier, State]),
     Token = State#state.token,
     Secret = State#state.secret,
     case twitterl:get_access_token(Verifier, Token, Secret) of
         AccessData when is_record(AccessData, twitter_access_data) ->
-            lager:debug("1:~n~n~n~n~n", []),
             NewState = State#state{access_data = AccessData},
-            lager:debug("NewState:~p~n", [NewState]),
             {stop, normal, {ok, AccessData}, NewState};
         _ ->
-            lager:debug("2:~n~n~n~n~n", []),
             {reply, {error, invalid_token_data}, token_requested, State}
     end;
 
 token_requested(_Event, _From, State) ->
-    lager:debug("a1, Event:~p~n, State:~p~n", [_Event, State]),
     {reply, {error, invalid_event}, token_requested, State}.
 
 handle_event(_Event, StateName, State) ->
-    lager:debug("aa, Event:~p~n, StateName:~p~n, State:~p~n", [_Event, StateName, State]),
   {next_state, StateName, State}.
 
 handle_sync_event(_Event, _From, StateName, State) ->
-    lager:debug("bb, Event:~p~n, StateName:~p~n, State:~p~n", [_Event, StateName, State]),
   {reply, ok, StateName, State}.
 
 handle_info(_Info, StateName, State) ->
-    lager:debug("cc, Info:~p~n, StateName:~p~n, State:~p~n", [_Info, StateName, State]),
   {next_state, StateName, State}.
 
 terminate(_Reason, _StateName, _State) ->
-    lager:debug("ending:~p~n", [_Reason]),
   ok.
 
 code_change(_OldVsn, StateName, State, _Extra) ->
@@ -172,25 +160,20 @@ start_authorizer() ->
     emob_manager:start_oauth_fsm().
 
 stop_authorizer(Token) ->
-    lager:debug("stop:~p~n", [Token]),
     emob_manager:stop_oauth_fsm(Token).
 
 request_token(Pid, CallbackURL) ->
-    lager:debug("CallbackURL:~p~n", [CallbackURL]),
     emob_manager:safe_sync_send_event(Pid, {request_token, CallbackURL}).
 
 authorize_user(Token, Verifier) ->
-    lager:debug("Token:~p~n, Verifier:~p~n", [Token, Verifier]),
     emob_manager:safe_sync_send_event({?OAUTH_FSM, Token}, {authorize, Verifier}).
 
 store_credentials(AccessData) ->
-    lager:debug("AccessData:~p~n", [AccessData]),
     User = #user{id = AccessData#twitter_access_data.user_id,
                  access_token = AccessData#twitter_access_data.access_token,
                  access_token_secret = AccessData#twitter_access_data.access_token_secret,
                  screen_name = AccessData#twitter_access_data.screen_name,
-                 user_id = AccessData#twitter_access_data.user_id},
-    lager:debug("User:~p~n", [User]),
+                 twitter_id = AccessData#twitter_access_data.user_id},
     app_cache:set_data(?SAFE, User).
 
 get_user_from_token(Token) ->
@@ -201,5 +184,5 @@ get_credentials_from_user(User) ->
         access_token = User#user.access_token,
         access_token_secret = User#user.access_token_secret,
         screen_name = User#user.screen_name,
-        user_id = User#user.user_id}.
+        user_id = User#user.twitter_id}.
 

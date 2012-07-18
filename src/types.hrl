@@ -28,6 +28,8 @@
 %% Twitter
 -type token()                                 :: binary().
 -type secret()                                :: binary().
+-type name()                                  :: binary().
+-type description()                           :: binary().
 -type screen_name()                           :: binary().
 -type profile_picture()                       :: binary().
 -type user_id()                               :: binary().
@@ -46,4 +48,5 @@
 -type post_processed_status()                 :: boolean().
 -type emob_seq_key()                          :: any().
 -type emob_seq_value()                        :: non_neg_integer().
-
+-type emob_request_type()                     :: safe | dirty.
+-type emob_location_type()                    :: atom().

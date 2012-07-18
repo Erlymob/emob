@@ -101,7 +101,7 @@ get_processed_status_and_post(PostId) ->
 
 -spec send_post_to_users(#post{}) -> ok | error().
 send_post_to_users(Post) ->
-    emob_user:notify_all_users(Post).
+    emob_user:notify_users(Post).
 
 -spec set_post_to_processed(#post{}) -> ok | error().
 set_post_to_processed(Post) ->

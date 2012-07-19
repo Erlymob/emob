@@ -26,13 +26,6 @@
 
 -export([process_post/1]).
 
-% Testing
--export([get_post/1]).
--export([get_rsvps/1]).
--export([get_ignores/1]).
--export([get_all_posts/0]).
--export([empty_posts/0]).
-
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
 %% ------------------------------------------------------------------
@@ -61,33 +54,6 @@
 -spec process_post(#post{}) -> ok.
 process_post(Post) ->
     emob_manager:safe_cast({?EMOB_POST_RECEIVER, ?EMOB_POST_RECEIVER}, {process_post, Post}).
-
--spec get_post(post_id()) -> #post{} | undefined | error().
-get_post(PostId) ->
-    case app_cache:get_data(?DIRTY, ?POST, PostId) of
-        [Post] ->
-            Post;
-        _ ->
-            undefined
-    end.
-
--spec get_rsvps(post_id()) -> [user_id()] | error().
-get_rsvps(PostId) ->
-    [X#post_rsvp.rsvp_user || X <- app_cache:get_data(?DIRTY, ?POST_RSVP, PostId)].
-
--spec get_ignores(post_id()) -> [user_id()] | error().
-get_ignores(PostId) ->
-    [X#post_ignore.ignore_user || X <- app_cache:get_data(?DIRTY, ?POST_IGNORE, PostId)].
-
-
-% TODO: Limit to 200
--spec get_all_posts() -> [#post{}] | error().
-get_all_posts() ->
-    app_cache:get_after(?DIRTY, ?POST, ?FIRST_POST).
-
--spec empty_posts() -> {atomic, ok} | error().
-empty_posts() ->
-    mnesia:clear_table(?POST).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -152,7 +118,7 @@ code_change(_OldVsn, State, _Extra) ->
 -spec process_tweets(pid(), token(), secret()) -> ok | pid().
 process_tweets(DestPid, Token, Secret) ->
     SinceId =
-    case app_cache:get_last_entered_data(?DIRTY, ?POST) of
+    case app_cache:get_data_by_last_key(?DIRTY, ?POST) of
         [] ->
             ?FIRST_POST;
         [Post] ->

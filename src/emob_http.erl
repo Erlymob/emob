@@ -95,7 +95,7 @@ handle_get([<<"mobs">>], Req0, _State) ->
     Posts = case Value of
                 %% /mobs
                 undefined ->
-                    emob_post_receiver:get_all_posts();
+                    emob_post:get_all_posts();
                 %% /mobs?token=:token
                 Token ->
                     {ok, Values} = emob_user:get_posts(Token),
@@ -113,7 +113,7 @@ handle_get([<<"mob">>], Req0, _State) ->
             cowboy_http_req:reply(400, Req);   %% bad request
         PostId ->
             %% /mob?id=:id
-            case emob_post_receiver:get_post(bstr:to_integer(PostId)) of
+            case emob_post:get_post(bstr:to_integer(PostId)) of
                 #post{} = Post ->
                     Response = json_post(Post),
                     cowboy_http_req:reply(200, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req);
@@ -163,7 +163,7 @@ handle_get([<<"get_request_token">>], Req, _State) ->
     {Args, _Req0} = cowboy_http_req:body_qs(Req),
     URL = proplists:get_value(?CALLBACK_URL, Args),
     Response =
-    case emob_oauth_fsm:get_request_token(URL) of
+    case emob_auth:get_request_token(URL) of
         TokenData when is_record(TokenData, twitter_token_data) ->
             json_token(TokenData);
         Error ->
@@ -177,7 +177,7 @@ handle_get([<<"get_access_token">>], Req, _State) ->
     Token = proplists:get_value(?OAUTH_TOKEN, Args),
     Verifier = proplists:get_value(?OAUTH_VERIFIER, Args),
     Response =
-    case emob_oauth_fsm:get_access_token(Token, Verifier) of
+    case emob_auth:get_access_token(Token, Verifier) of
        AccessData when is_record(AccessData, twitter_access_data) ->
             json_access(AccessData);
         Error ->
@@ -190,7 +190,7 @@ handle_get([<<"get_credentials">>], Req, _State) ->
     {Args, _Req0} = cowboy_http_req:body_qs(Req),
     Token = proplists:get_value(?OAUTH_TOKEN, Args),
     Response =
-    case emob_oauth_fsm:get_credentials(Token) of
+    case emob_auth:get_credentials(Token) of
        AccessData when is_record(AccessData, twitter_access_data) ->
             json_access(AccessData);
         Error ->
@@ -202,7 +202,7 @@ handle_get([<<"remove_credentials">>], Req, _State) ->
     %% Here, the Token is in the body of the request
     {Args, _Req0} = cowboy_http_req:body_qs(Req),
     Token = proplists:get_value(?OAUTH_TOKEN, Args),
-    emob_oauth_fsm:remove_credentials(Token),
+    emob_auth:remove_credentials(Token),
     Response = json_ok(),
     cowboy_http_req:reply(200, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req);
 
@@ -275,7 +275,7 @@ access_to_ejson(AccessData) ->
       {?SCREEN_NAME, AccessData#twitter_access_data.screen_name}]}.
 
 post_to_ejson(Post = #post{post_data = Tweet}) ->
-    Rsvps = emob_post_receiver:get_rsvps(Post#post.id),
+    Rsvps = emob_post:get_rsvps(Post#post.id),
     %% lager:debug("Rsvps: ~p~n", [Rsvps]),
     {UserName, Going} = case Tweet#tweet.user of
                             #twitter_user{screen_name = ScreenName, id_str = UserId} when is_binary(ScreenName) ->

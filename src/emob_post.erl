@@ -26,7 +26,10 @@
 -export([get_rsvps/1]).
 -export([get_ignores/1]).
 -export([get_all_posts/0]).
--export([empty_posts/0]).
+-export([delete_post/1]).
+-export([delete_all_posts/0]).
+
+-export([get_embedded_locations_from_post/1]).
 
 %% ------------------------------------------------------------------
 %% Includes & Defines
@@ -60,7 +63,14 @@ get_ignores(PostId) ->
 get_all_posts() ->
     app_cache:get_last_n_entries(?DIRTY, ?POST, ?MAX_POSTS).
 
--spec empty_posts() -> {atomic, ok} | error().
-empty_posts() ->
-    mnesia:clear_table(?POST).
+-spec delete_post(post_id()) -> ok.
+delete_post(PostId) ->
+    emob_post_receiver:delete_post(PostId).
 
+-spec delete_all_posts() -> ok.
+delete_all_posts() ->
+    [emob_post_receiver:delete_post(Post#post.id) || Post <- app_cache:get_all_data(?POST)].
+
+-spec get_embedded_locations_from_post(#post{}) -> [#location_data{}] | undefined.
+get_embedded_locations_from_post(Post) ->
+    emob_post_receiver:get_embedded_locations(Post).

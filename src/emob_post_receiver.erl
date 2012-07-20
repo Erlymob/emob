@@ -25,6 +25,9 @@
 %% ------------------------------------------------------------------
 
 -export([process_post/1]).
+-export([delete_post/1]).
+
+-export([get_embedded_locations/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -39,6 +42,8 @@
 -include("defaults.hrl").
 
 -record(post_receiver_state, {
+            token                       :: token(),
+            secret                      :: secret(),
             default_user_id             :: user_id(),
             default_user_screen_name    :: screen_name(),
             stream_pid                  :: pid()
@@ -55,6 +60,13 @@
 process_post(Post) ->
     emob_manager:safe_cast({?EMOB_POST_RECEIVER, ?EMOB_POST_RECEIVER}, {process_post, Post}).
 
+-spec delete_post(post_id()) -> ok.
+delete_post(PostId) ->
+    emob_manager:safe_cast({?EMOB_POST_RECEIVER, ?EMOB_POST_RECEIVER}, {delete_post, PostId}).
+
+-spec get_embedded_locations(#post{}) -> [#location_data{}] | undefined.
+get_embedded_locations(Post) ->
+    get_embedded_locations_internal(Post#post.post_data).
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -69,7 +81,9 @@ init([Token, Secret]) ->
     process_tweets(DestPid, Token, Secret),
     DefaultUser = emob_user:get_default_twitter_user(Token, Secret),
 
-    State = #post_receiver_state{default_user_screen_name = DefaultUser#twitter_user.screen_name,
+    State = #post_receiver_state{token = Token,
+                                 secret = Secret,
+                                 default_user_screen_name = DefaultUser#twitter_user.screen_name,
                                  default_user_id = DefaultUser#twitter_user.id_str},
     {ok, State}.
 
@@ -83,15 +97,24 @@ handle_cast({process_post, Tweet}, State) ->
     PostId = Tweet#tweet.id,
     case app_cache:key_exists(?SAFE, ?POST, PostId) of
         false ->
+            Locations = get_embedded_locations_internal(Tweet),
             PostRecord = #post{
                     id = PostId,
+                    locations = Locations,
                     post_data = Tweet},
-            app_cache:set_data(?SAFE, PostRecord),
-            respond_to_post(Tweet, State),
+            respond_to_post(PostRecord, State),
             emob_post_distributor:distribute_post(PostId);
         true ->
             ok
     end,
+    {noreply, State};
+
+handle_cast({delete_post, PostId}, State) ->
+    Token = State#post_receiver_state.token,
+    Secret = State#post_receiver_state.secret,
+    SPostId = util:get_string(PostId),
+    twitterl:statuses_destroy({self, self}, SPostId, [], Token, Secret),
+    app_cache:remove_data(?SAFE, ?POST, PostId),
     {noreply, State};
 
 handle_cast(_Msg, State) ->
@@ -133,8 +156,11 @@ process_tweets(DestPid, Token, Secret) ->
                 twitterl:statuses_user_timeline_stream({process, DestPid}, [], Token, Secret)
         end).
 
--spec respond_to_post(#tweet{}, #post_receiver_state{}) -> any().
-respond_to_post(Tweet, State) ->
+%% @doc send a response back to the original poster with a post hash that they
+%%      can use as a reference
+-spec respond_to_post(#post{}, #post_receiver_state{}) -> any().
+respond_to_post(Post, State) ->
+    Tweet = Post#post.post_data,
     Id = Tweet#tweet.id_str,
     UserId = (Tweet#tweet.user)#twitter_user.id_str,
     ScreenName = (Tweet#tweet.user)#twitter_user.screen_name,
@@ -147,6 +173,7 @@ respond_to_post(Tweet, State) ->
         true ->
             Status = get_status(SScreenName),
             Result = twitterl:statuses_update({debug, foo}, [{"status", Status}, {"in_reply_to_status_id", binary_to_list(Id)}], Token, Secret),
+            app_cache:set_data(?SAFE, Post),
             Result
     end.
 
@@ -158,9 +185,78 @@ get_status(SScreenName) ->
                                                      ?EMOB_RESPONSE_PAD_CHAR),
     "@" ++ SScreenName ++ " " ++ ResponseHash.
 
-    
+-spec get_embedded_locations_internal(#tweet{}) -> [#location_data{}].
+get_embedded_locations_internal(Tweet) ->
+    Timestamp = Tweet#tweet.created_at,
+    case Tweet#tweet.entities of
+        Entities when is_record(Entities, entities) ->
+            TweetURLs = Entities#entities.urls,
+            lists:flatten([get_location_data_from_url(URL#entity_url.expanded_url, Timestamp) || URL <- TweetURLs]);
+        _ ->
+            []
+    end.
 
+-spec get_location_data_from_url(url() | undefined, timestamp()) -> #location_data{}.
+get_location_data_from_url(undefined, _) -> [];
+get_location_data_from_url(URL, Timestamp) -> 
+    case binary:match(URL, ?GOOGLE_MAPS_BASE_MATCH) of
+        {0, Length} ->
+            Params = binary:part(URL, Length, byte_size(URL) - (Length + 1)),
+            build_location_data(?LOCATION_TYPE_GOOGLE, Params, URL, Timestamp);
+        _ ->
+            []
+    end.
 
+%% @doc Build out the #location_data{} based on the type of the URL
+%%      Add yahoo/bing/whatever here
+-spec build_location_data(emob_location_type(), list(), url(), timestamp()) -> #location_data{} | [].
+build_location_data(LocationType = ?LOCATION_TYPE_GOOGLE, Params, URL, Timestamp) ->
+    SParams = util:get_string(Params),
+    Props = oauth:uri_params_decode(SParams),
+    #location_data{type = LocationType,
+                   location = extract_location_from_props(Props),
+                   geo = extract_geo_from_props(Props),
+                   timestamp = Timestamp,
+                   raw_url = URL};
+build_location_data(_Type, _Params, _URL, _TImestamp) -> [].
 
+%% @doc Get the coordinates from the query string, and return the geoJson
+-spec extract_geo_from_props(list()) -> #bounding_box{} | undefined.
+extract_geo_from_props(Props) ->
+    LatLong = case lists:keyfind("ll", 1, Props) of
+        {"ll", Val} ->
+            Val;
+        false ->
+            case lists:keyfind("sll", 1, Props) of
+                {"sll", Val} ->
+                    Val;
+                false ->
+                    undefined
+            end
+    end,
+    build_geo_json(LatLong).
 
+%% @doc Get the geoJson for the provided Lat Long
+%%      Remember, in geoGson, LatLong are reversed
+-spec build_geo_json(string()) -> #bounding_box{} | undefined.
+build_geo_json(undefined) -> undefined;
+build_geo_json(LatLong) ->
+    case string:tokens(LatLong, ",") of
+        [SLat, SLong] ->
+            Lat = bstr:to_number(util:get_binary(SLat)),
+            Long = bstr:to_number(util:get_binary(SLong)),
+            #bounding_box{type = <<"Point">>, 
+                          coordinates = [Long, Lat]};
+        _ ->
+            undefined
+    end.
 
+%% @doc Get the query string that was entered in Google
+-spec extract_location_from_props(list()) -> binary() | undefined.
+extract_location_from_props(SParams) ->
+    case lists:keyfind("q", 1, SParams) of
+        {"q", SLocation} ->
+            util:get_binary(SLocation);
+        false ->
+            undefined
+    end.

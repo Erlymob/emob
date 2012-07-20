@@ -64,14 +64,19 @@
 
 %% EMOB LOCATION DATA
 
+-define(GOOGLE_MAPS_BASE_MATCH, [<<"http://maps.google.com/maps?">>, <<"https://maps.google.com/maps?">>]).
+
 -define(LOCATION_TYPE_TWITTER, twitter).
 -define(LOCATION_TYPE_WEB, web).
+-define(LOCATION_TYPE_GOOGLE, google).
 -define(LOCATION_DATA, location_data).
 -record(?LOCATION_DATA, {
-          type                                      :: atom(),
+          type                                      :: emob_location_type(),
           location = <<>>                           :: binary(),
-          geo = null                                :: #bounding_box{},
-          timestamp                                 :: epoch()
+          geo = []                                  :: list(),
+          place                                     :: #twitter_place{},
+          timestamp                                 :: epoch(),
+          raw_url                                   :: url()
          }).
 
 
@@ -91,7 +96,7 @@
 -record(?POST, {
           id                                        :: twitter_id(),
           timestamp                                 :: timestamp(),
-          location                                  :: any(),
+          locations = []                            :: [#location_data{}],
           post_data                                 :: #tweet{},
           processed = false                         :: post_processed_status()
          }).

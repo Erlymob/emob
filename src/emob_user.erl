@@ -169,7 +169,6 @@ handle_call({get_user, RequestType}, _From, State) ->
     Token = State#state.token,
     Secret = State#state.secret,
     User = get_user_internal(UserId, RequestType, Token, Secret),
-    lager:debug("User:~p~n", [User]),
     Response = validate_user(User),
     {reply, Response, State};
 
@@ -307,7 +306,6 @@ set_user_location_internal(UserId, Location) ->
 -spec get_user_internal(user_id(), emob_request_type(), token(), secret()) -> #user{}.
 get_user_internal(UserId, ?SAFE, Token, Secret) ->
     TwitterUser = get_user_data_from_twitter(UserId, Token, Secret),
-    lager:debug("TwitterUser:~p, UserId:~p~n", [TwitterUser, UserId]),
     if TwitterUser#twitter_user.id_str =:= UserId ->
             update_user_from_twitter_user(TwitterUser);
         true ->
@@ -335,7 +333,7 @@ get_user_from_twitter_id(UserId) ->
 -spec get_user_data_from_twitter(user_id(), token(), secret()) -> #twitter_user{} | false.
 get_user_data_from_twitter(UserId, Token, Secret) ->
     SUserId = util:get_string(UserId),
-    twitterl:users_show({self, self}, [{"user_id", SUserId}], Token, Secret).
+    twitterl:users_show({self, self}, [{"user_id", SUserId}, {"include_entities", "true"}], Token, Secret).
 
 %% @doc Update a user based on the data in the tweet
 %%      If the user doesnt exist, it gets created
@@ -347,13 +345,15 @@ update_user_from_twitter_user(TwitterUser) ->
 
 -spec update_user_data_from_twitter(#user{}, #twitter_user{}) -> #user{}.
 update_user_data_from_twitter(User, TwitterUser) ->
-    lager:debug("User:~p~n", [User]),
-    Location = #location_data{type = ?LOCATION_TYPE_TWITTER, 
+    TweetLocation = #location_data{type = ?LOCATION_TYPE_TWITTER, 
                              location = TwitterUser#twitter_user.location,
                              geo = geo_from_tweet(TwitterUser#twitter_user.status),
+                             place = place_from_tweet(TwitterUser#twitter_user.status),
                              timestamp = timestamp_from_tweet(TwitterUser#twitter_user.status)},
-    lager:debug("Location:~p~n", [Location]),
-    NewLocations = update_locations(Location, User#user.locations, false),
+    EmbeddedLocations = emob_post:get_embedded_locations_from_post(#post{post_data = TwitterUser#twitter_user.status}),
+    NewLocations = lists:foldl(fun(Location, _Acc) ->
+                    update_locations(Location, User#user.locations, false)
+            end, [], [TweetLocation | EmbeddedLocations]),
     NewUser = User#user{locations = NewLocations,
               tweet = TwitterUser#twitter_user.status},
     app_cache:set_data(NewUser),
@@ -463,14 +463,15 @@ get_location(LocationType, Locations) ->
     end.
 
 %% @doc Update the list of #location_data{} for a user
--spec update_locations(#location_data{}, [#location_data{}], boolean()) -> #location_data{}.
+-spec update_locations(#location_data{} | undefined, [#location_data{}], boolean()) -> #location_data{}.
+update_locations(undefined, Locations, _UseTimestamp) -> Locations;
 update_locations(Location, Locations, UseTimestamp) ->
     LocationType = Location#location_data.type,
     OldLocation = get_location(LocationType, Locations),
     case is_same_location(OldLocation, Location, UseTimestamp) of
-        false ->
+        true ->
             Locations;
-        true -> 
+        false -> 
             lists:keystore(LocationType, #location_data.type, Locations, Location)
     end.
 
@@ -479,15 +480,23 @@ update_locations(Location, Locations, UseTimestamp) ->
 -spec is_same_location(#location_data{}, #location_data{}, boolean()) -> boolean().
 is_same_location(OldLocation, Location, _UseTimestamp = true) ->
     (OldLocation#location_data.geo =:= Location#location_data.geo) andalso
-    (OldLocation#location_data.location =:= Location#location_data.geo);
+    (OldLocation#location_data.place =:= Location#location_data.place) andalso
+    (OldLocation#location_data.location =:= Location#location_data.location);
 is_same_location(OldLocation, Location, _UseTimestamp = false) ->
     OldLocation =:= Location.
 
 %% @doc extract the geo information from a tweet
+%%      NOTE:  This is actually the "coordinates" field in the tweet
 -spec geo_from_tweet(#tweet{} | null) -> #bounding_box{} | null.
 geo_from_tweet(Tweet) when is_record(Tweet, tweet) ->
-    Tweet#tweet.geo;
+    Tweet#tweet.coordinates;
 geo_from_tweet(_) -> null.
+
+%% @doc extract the place information from a tweet
+-spec place_from_tweet(#tweet{} | null) -> #bounding_box{} | null.
+place_from_tweet(Tweet) when is_record(Tweet, tweet) ->
+    Tweet#tweet.place;
+place_from_tweet(_) -> null.
 
 %% @doc extract the timestamp from a tweet
 -spec timestamp_from_tweet(#tweet{} | null) -> epoch().

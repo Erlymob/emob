@@ -171,20 +171,30 @@ respond_to_post(Post, State) ->
     if UserId =:= DefaultUserId ->
             void;
         true ->
-            Status = get_status(SScreenName),
+            {ResponseTag, Status} = get_response_tag_and_status(SScreenName),
             Result = twitterl:statuses_update({debug, foo}, [{"status", Status}, {"in_reply_to_status_id", binary_to_list(Id)}], Token, Secret),
-            app_cache:set_data(?SAFE, Post),
+            update_post_response_tag(Post, ResponseTag),
             Result
     end.
 
--spec get_status(string()) -> string().
-get_status(SScreenName) ->
+-spec get_response_tag_and_status({emob_response_tag(), string()}) -> string().
+get_response_tag_and_status(SScreenName) ->
     Id = app_cache:cached_sequence_next_value(?EMOB_RECEIVER_SEQ),
-    ResponseHash = ?EMOB_RESPONSE_BASE ++ string:right(util:get_base62(Id),
+    ResponseTag = ?EMOB_RESPONSE_BASE ++ string:right(util:get_base62(Id),
                                                      ?EMOB_RESPONSE_CHAR_COUNT,
                                                      ?EMOB_RESPONSE_PAD_CHAR),
-    "@" ++ SScreenName ++ " " ++ ResponseHash.
+    {ResponseTag, "@" ++ SScreenName ++ " #" ++ ResponseTag}.
 
+%% @doc Update the post with the response tag for the post.
+%%      Also, update the reverse lookup table
+-spec update_post_response_tag(#post{}, emob_response_tag()) -> ok.
+update_post_response_tag(Post, ResponseTag) ->
+    BResponseTag = util:get_binary(ResponseTag),
+    app_cache:set_data(?SAFE, Post#post{response_tag = BResponseTag}),
+    app_cache:set_data(?SAFE, #post_response_tag{id = BResponseTag,
+                                                 post_id = Post#post.id}).
+
+%% @doc Get the locations embedded in any known URLs in the tweet
 -spec get_embedded_locations_internal(#tweet{}) -> [#location_data{}].
 get_embedded_locations_internal(Tweet) ->
     Timestamp = Tweet#tweet.created_at,
@@ -204,7 +214,13 @@ get_location_data_from_url(URL, Timestamp) ->
             Params = binary:part(URL, Length, byte_size(URL) - (Length + 1)),
             build_location_data(?LOCATION_TYPE_GOOGLE, Params, URL, Timestamp);
         _ ->
-            []
+            case binary:match(URL, ?BING_MAPS_BASE_MATCH) of
+                {0, Length} ->
+                    Params = binary:part(URL, Length, byte_size(URL) - (Length + 1)),
+                    build_location_data(?LOCATION_TYPE_BING, Params, URL, Timestamp);
+                _ ->
+                    []
+            end
     end.
 
 %% @doc Build out the #location_data{} based on the type of the URL
@@ -214,15 +230,23 @@ build_location_data(LocationType = ?LOCATION_TYPE_GOOGLE, Params, URL, Timestamp
     SParams = util:get_string(Params),
     Props = oauth:uri_params_decode(SParams),
     #location_data{type = LocationType,
-                   location = extract_location_from_props(Props),
-                   geo = extract_geo_from_props(Props),
+                   location = extract_location_from_props(LocationType, Props),
+                   geo = extract_geo_from_props(LocationType, Props),
+                   timestamp = Timestamp,
+                   raw_url = URL};
+build_location_data(LocationType = ?LOCATION_TYPE_BING, Params, URL, Timestamp) ->
+    SParams = util:get_string(Params),
+    Props = oauth:uri_params_decode(SParams),
+    #location_data{type = LocationType,
+                   location = extract_location_from_props(LocationType, Props),
+                   geo = extract_geo_from_props(LocationType, Props),
                    timestamp = Timestamp,
                    raw_url = URL};
 build_location_data(_Type, _Params, _URL, _TImestamp) -> [].
 
 %% @doc Get the coordinates from the query string, and return the geoJson
--spec extract_geo_from_props(list()) -> #bounding_box{} | undefined.
-extract_geo_from_props(Props) ->
+-spec extract_geo_from_props(emob_location_type(), list()) -> #bounding_box{} | undefined.
+extract_geo_from_props(LocationType = ?LOCATION_TYPE_GOOGLE, Props) ->
     LatLong = case lists:keyfind("ll", 1, Props) of
         {"ll", Val} ->
             Val;
@@ -234,14 +258,32 @@ extract_geo_from_props(Props) ->
                     undefined
             end
     end,
-    build_geo_json(LatLong).
+    build_geo_json(LocationType, LatLong);
+extract_geo_from_props(LocationType = ?LOCATION_TYPE_BING, Props) ->
+    LatLong = case lists:keyfind("cp", 1, Props) of
+        {"cp", Val} ->
+            Val;
+        false ->
+            undefined
+    end,
+    build_geo_json(LocationType, LatLong).
 
 %% @doc Get the geoJson for the provided Lat Long
 %%      Remember, in geoGson, LatLong are reversed
--spec build_geo_json(string()) -> #bounding_box{} | undefined.
-build_geo_json(undefined) -> undefined;
-build_geo_json(LatLong) ->
+-spec build_geo_json(emob_location_type(), string() | undefined) -> #bounding_box{} | undefined.
+build_geo_json(_, undefined) -> undefined;
+build_geo_json(?LOCATION_TYPE_GOOGLE, LatLong) ->
     case string:tokens(LatLong, ",") of
+        [SLat, SLong] ->
+            Lat = bstr:to_number(util:get_binary(SLat)),
+            Long = bstr:to_number(util:get_binary(SLong)),
+            #bounding_box{type = <<"Point">>, 
+                          coordinates = [Long, Lat]};
+        _ ->
+            undefined
+    end;
+build_geo_json(?LOCATION_TYPE_BING, LatLong) ->
+    case string:tokens(LatLong, "~") of
         [SLat, SLong] ->
             Lat = bstr:to_number(util:get_binary(SLat)),
             Long = bstr:to_number(util:get_binary(SLong)),
@@ -252,10 +294,17 @@ build_geo_json(LatLong) ->
     end.
 
 %% @doc Get the query string that was entered in Google
--spec extract_location_from_props(list()) -> binary() | undefined.
-extract_location_from_props(SParams) ->
+-spec extract_location_from_props(emob_location_type(), list()) -> binary() | undefined.
+extract_location_from_props(?LOCATION_TYPE_GOOGLE, SParams) ->
     case lists:keyfind("q", 1, SParams) of
         {"q", SLocation} ->
+            util:get_binary(SLocation);
+        false ->
+            undefined
+    end;
+extract_location_from_props(?LOCATION_TYPE_BING, SParams) ->
+    case lists:keyfind("where1", 1, SParams) of
+        {"where1", SLocation} ->
             util:get_binary(SLocation);
         false ->
             undefined

@@ -24,7 +24,7 @@
 -define(MAX_POSTS, 200).
 
 -define(EMOB_RECEIVER_SEQ, emob_receiver_seq).
--define(EMOB_RESPONSE_BASE, "#mob").
+-define(EMOB_RESPONSE_BASE, "mob").
 -define(EMOB_RESPONSE_CHAR_COUNT, 6).
 -define(EMOB_RESPONSE_PAD_CHAR, $0).
 
@@ -65,10 +65,12 @@
 %% EMOB LOCATION DATA
 
 -define(GOOGLE_MAPS_BASE_MATCH, [<<"http://maps.google.com/maps?">>, <<"https://maps.google.com/maps?">>]).
+-define(BING_MAPS_BASE_MATCH, [<<"http://www.bing.com/maps?">>, <<"https://www.bing.com/maps?">>]).
 
 -define(LOCATION_TYPE_TWITTER, twitter).
 -define(LOCATION_TYPE_WEB, web).
 -define(LOCATION_TYPE_GOOGLE, google).
+-define(LOCATION_TYPE_BING, bing).
 -define(LOCATION_DATA, location_data).
 -record(?LOCATION_DATA, {
           type                                      :: emob_location_type(),
@@ -87,6 +89,7 @@
 -define(POST_TTL,        ?INFINITY).
 -define(USER_TTL,        ?INFINITY).
 -define(POST_RSVP_TTL,   60*60*24*100).
+-define(POST_RESPONSE_TAG_TTL, 60*60*24*100).
 -define(POST_IGNORE_TTL, 60*60*24*100).
 
 
@@ -98,6 +101,7 @@
           timestamp                                 :: timestamp(),
           locations = []                            :: [#location_data{}],
           post_data                                 :: #tweet{},
+          response_tag                              :: emob_response_tag(),
           processed = false                         :: post_processed_status()
          }).
 
@@ -107,6 +111,13 @@
           id                                        :: post_id(),
           timestamp                                 :: timestamp(),
           rsvp_user                                 :: user_id()
+         }).
+
+-define(POST_RESPONSE_TAG, post_response_tag).
+-record(?POST_RESPONSE_TAG, {
+          id                                        :: emob_response_tag(),
+          timestamp                                 :: timestamp(),
+          post_id                                   :: post_id()
          }).
 
 -define(POST_IGNORE, post_ignore).

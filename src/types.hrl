@@ -50,3 +50,4 @@
 -type emob_seq_value()                        :: non_neg_integer().
 -type emob_request_type()                     :: safe | dirty.
 -type emob_location_type()                    :: atom().
+-type emob_response_tag()                     :: binary().

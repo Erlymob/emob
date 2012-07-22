@@ -23,6 +23,7 @@
 %% ------------------------------------------------------------------
 
 -export([get_post/1]).
+-export([get_post_by_response_tag/1]).
 -export([get_rsvps/1]).
 -export([get_ignores/1]).
 -export([get_all_posts/0]).
@@ -40,11 +41,22 @@
 %% API Function Definitions
 %% ------------------------------------------------------------------
 
+%% @doc Get the post associated with the given post_id
 -spec get_post(post_id()) -> #post{} | undefined | error().
 get_post(PostId) ->
     case app_cache:get_data(?DIRTY, ?POST, PostId) of
         [Post] ->
             Post;
+        _ ->
+            undefined
+    end.
+
+%% @doc Get the post associated with the given response tag
+-spec get_post_by_response_tag(emob_response_tag()) -> #post{} | undefined | error().
+get_post_by_response_tag(ResponseTag) ->
+    case app_cache:get_data(?DIRTY, ?POST_RESPONSE_TAG, ResponseTag) of
+        [ResponseTagData] ->
+            get_post(ResponseTagData#post_response_tag.post_id);
         _ ->
             undefined
     end.

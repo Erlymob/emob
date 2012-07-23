@@ -26,6 +26,7 @@
 
 -export([process_post/1]).
 -export([delete_post/1]).
+-export([set_min_users_for_post/2]).
 
 -export([get_embedded_locations/1]).
 
@@ -62,7 +63,11 @@ process_post(Post) ->
 
 -spec delete_post(post_id()) -> ok.
 delete_post(PostId) ->
-    emob_manager:safe_cast({?EMOB_POST_RECEIVER, ?EMOB_POST_RECEIVER}, {delete_post, PostId}).
+    emob_manager:safe_call({?EMOB_POST_RECEIVER, ?EMOB_POST_RECEIVER}, {delete_post, PostId}).
+
+-spec set_min_users_for_post(post_id(), integer()) -> ok | error().
+set_min_users_for_post(PostId, Count) ->
+    emob_manager:safe_cast({?EMOB_POST_RECEIVER, ?EMOB_POST_RECEIVER}, {set_min_users_for_post, PostId, Count}).
 
 -spec get_embedded_locations(#post{}) -> [#location_data{}] | undefined.
 get_embedded_locations(Post) ->
@@ -88,6 +93,16 @@ init([Token, Secret]) ->
     {ok, State}.
 
 
+
+handle_call({set_min_users_for_post, PostId, Count}, _From, State) ->
+    Result = 
+    case app_cache:get_data(?SAFE, ?POST, PostId) of
+        [Post] ->
+            app_cache:set_data(Post#post{min_users = Count});
+        _ ->
+            {error, {?INVALID_POST, PostId}}
+    end,
+    {reply, Result, State};
 
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.

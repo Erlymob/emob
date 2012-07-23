@@ -70,6 +70,7 @@ get_access_token(Token, Verifier) ->
     case authorize_user(Token, Verifier) of
         {ok, AccessData} ->
             store_credentials(AccessData),
+            refresh_user_from_twitter(AccessData#twitter_access_data.user_id),
             % Clobber the gen_fsm, 'cos you don't need it any more
             stop_authorizer(Token),
             AccessData;
@@ -175,6 +176,10 @@ store_credentials(AccessData) ->
                  screen_name = AccessData#twitter_access_data.screen_name,
                  twitter_id = AccessData#twitter_access_data.user_id},
     app_cache:set_data(?SAFE, User).
+
+refresh_user_from_twitter(UserId) ->
+    proc_lib:spawn_link(fun() -> emob_user:get_user(UserId, ?SAFE) end).
+
 
 get_user_from_token(Token) ->
     app_cache:get_data_from_index(?SAFE, ?USER, Token, ?USER_ACCESS_TOKEN).

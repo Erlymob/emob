@@ -28,6 +28,7 @@
 -export([get_user_locations/1, get_user_locations/2]).
 -export([get_user_location/2, get_user_location/3]).
 -export([set_user_location/2]).
+-export([get_user_from_post/1]).
 -export([update_user_from_post/1]).
 -export([set_callback/2]).
 
@@ -41,7 +42,8 @@
 -export([like_post/2]).
 -export([unlike_post/2]).
 -export([process_post/2]).
--export([notify_users/1]).
+-export([notify_users_of_post/1]).
+-export([notify_user_of_readiness/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -68,7 +70,7 @@
 %% @doc Get the User profile
 -spec get_user(user_id()) -> #twitter_user{} | error().
 get_user(UserId) ->
-    emob_manager:safe_call({?EMOB_USER, UserId}, {get_user, ?SAFE}).
+    get_user(UserId, ?SAFE).
 
 -spec get_user(user_id(), emob_request_type()) -> #twitter_user{} | error().
 get_user(UserId, RequestType) ->
@@ -76,7 +78,7 @@ get_user(UserId, RequestType) ->
 
 -spec get_user_locations(user_id()) -> #twitter_user{} | error().
 get_user_locations(UserId) ->
-    emob_manager:safe_call({?EMOB_USER, UserId}, {get_user_locations, ?SAFE}).
+    get_user_locations(UserId, ?SAFE).
 
 -spec get_user_locations(user_id(), emob_request_type()) -> #twitter_user{} | error().
 get_user_locations(UserId, RequestType) ->
@@ -84,7 +86,7 @@ get_user_locations(UserId, RequestType) ->
 
 -spec get_user_location(user_id(), emob_location_type()) -> #twitter_user{} | error().
 get_user_location(UserId, LocationType) ->
-    emob_manager:safe_call({?EMOB_USER, UserId}, {get_user_location, LocationType, ?SAFE}).
+    get_user_location(UserId, LocationType, ?SAFE).
 
 -spec get_user_location(user_id(), emob_location_type(), emob_request_type()) -> #twitter_user{} | error().
 get_user_location(UserId, LocationType, RequestType) ->
@@ -93,6 +95,21 @@ get_user_location(UserId, LocationType, RequestType) ->
 -spec set_user_location(user_id(), #location_data{}) -> #twitter_user{} | error().
 set_user_location(UserId, Location) ->
     emob_manager:safe_call({?EMOB_USER, UserId}, {set_user_location, Location}).
+
+-spec get_user_from_post(#post{}) -> user_id() | error().
+get_user_from_post(Post) ->
+    try
+        UserId = ((Post#post.post_data)#tweet.user)#twitter_user.id_str,
+        case app_cache:get_data(?SAFE, ?USER, UserId) of
+            [User] ->
+                User;
+            _ ->
+                {error, {?INVALID_USER, UserId}}
+        end
+    catch
+        _:_ ->
+            {error, {?INVALID_POST, Post#post.id}}
+    end.
 
 -spec update_user_from_post(#post{}) -> #user{} | error().
 update_user_from_post(Post) ->
@@ -148,18 +165,25 @@ unignore_post(UserId, PostId) ->
 
 %% @doc Process the incoming tweet
 %%          sent to Target
+-spec process_post(user_id(), post_id()) -> ok.
 process_post(UserId, PostId) ->
     emob_manager:safe_cast({?EMOB_USER, UserId}, {process_post, PostId}).
 
 %% @doc Notify all the users that a new post exists
 % TODO have callback users in a seperate table, efficiently notify them, etc.
-notify_users(Post) ->
+notify_users_of_post(Post) ->
     UserFun = fun() -> mnesia:foldl(fun(X, Acc) ->
-                    CallbackPid = X#user.callback,
-                    twitterl:respond_to_target({process, CallbackPid}, {post, Post}),
+                    Target = X#user.callback,
+                    twitterl:respond_to_target(Target, {post, Post}),
                     Acc
                 end, [], ?USER) end,
     mnesia:transaction(UserFun).
+
+%% @doc Notify a given user that the post is ready for action
+%%      (min_users have rsvp'd)
+notify_user_of_readiness(PostId) ->
+    User = get_user_from_post(PostId),
+    notify_user_of_readiness(User, PostId).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -258,7 +282,7 @@ handle_cast({process_post, PostId}, State) ->
     Token = State#state.token,
     Secret = State#state.secret,
     User = get_user_internal(UserId, ?DIRTY, Token, Secret),
-    notify_user(User, PostId),
+    notify_user_of_post(User, PostId),
     {noreply, State};
 
 handle_cast(_Msg, State) ->
@@ -394,7 +418,9 @@ update_user_from_post_internal(Post) ->
 -spec rsvp_post_internal(user_id(), post_id()) -> ok | error().
 rsvp_post_internal(UserId, PostId) ->
     Entry = #post_rsvp{id = PostId, rsvp_user = UserId},
-    app_cache:set_data(?SAFE, Entry).
+    Result = app_cache:set_data(?SAFE, Entry),
+    notify_user_of_readiness(PostId),
+    Result.
 
 %% @doc Unrsvp a post for a given user
 -spec unrsvp_post_internal(user_id(), post_id()) -> ok | error().
@@ -483,12 +509,23 @@ update_posts_from_cache(User) ->
     end.
 
 %% @doc Send the post to a given user
-notify_user(User, PostId) ->
-    TargetPid = User#user.callback,
-    case TargetPid =/= undefined of
+notify_user_of_post(User, PostId) ->
+    Target= User#user.callback,
+    case Target=/= undefined of
         true ->
             Post = app_cache:get(?DIRTY, ?POST, PostId),
-            twitterl:respond_to_target({process, TargetPid}, {post, Post});
+            twitterl:respond_to_target(Target, {post, Post});
+        false ->
+            void
+    end.
+
+%% @doc Tell the user that a given post has achieved min_users
+notify_user_of_readiness(User, PostId) ->
+    Target= User#user.callback,
+    case Target=/= undefined of
+        true ->
+            Post = app_cache:get(?DIRTY, ?POST, PostId),
+            twitterl:respond_to_target(Target, {post_ready, Post});
         false ->
             void
     end.

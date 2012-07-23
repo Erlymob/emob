@@ -18,6 +18,7 @@
 -define(INVALID_BINARY, <<"invalid_binary">>).
 -define(INVALID_STRING, <<"invalid_string">>).
 -define(INVALID_INTEGER, <<"invalid_integer">>).
+-define(INVALID_POST, <<"invalid_post">>).
 -define(EMPTY_ERROR, <<"empty_error">>).
 -define(TWITTER_ERROR, <<"twitter_error">>).
 -define(STARTUP_TIMER, 5000).
@@ -75,7 +76,7 @@
 -record(?LOCATION_DATA, {
           type                                      :: emob_location_type(),
           location = <<>>                           :: binary(),
-          geo = []                                  :: list(),
+          geo                                       :: #bounding_box{},
           place                                     :: #twitter_place{},
           timestamp                                 :: epoch(),
           raw_url                                   :: url()
@@ -102,6 +103,7 @@
           timestamp                                 :: timestamp(),
           locations = []                            :: [#location_data{}],
           post_data                                 :: #tweet{},
+          min_users                                 :: integer(),
           response_tag                              :: emob_response_tag(),
           processed = false                         :: post_processed_status()
          }).

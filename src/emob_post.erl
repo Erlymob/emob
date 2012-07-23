@@ -25,6 +25,7 @@
 -export([get_post/1]).
 -export([get_post_by_response_tag/1]).
 -export([get_rsvps/1]).
+-export([get_likes/1]).
 -export([get_ignores/1]).
 -export([get_all_posts/0]).
 -export([delete_post/1]).
@@ -64,6 +65,10 @@ get_post_by_response_tag(ResponseTag) ->
 -spec get_rsvps(post_id()) -> [user_id()] | error().
 get_rsvps(PostId) ->
     [X#post_rsvp.rsvp_user || X <- app_cache:get_data(?DIRTY, ?POST_RSVP, PostId)].
+
+-spec get_likes(post_id()) -> [user_id()] | error().
+get_likes(PostId) ->
+    [X#post_like.like_user || X <- app_cache:get_data(?DIRTY, ?POST_LIKE, PostId)].
 
 -spec get_ignores(post_id()) -> [user_id()] | error().
 get_ignores(PostId) ->

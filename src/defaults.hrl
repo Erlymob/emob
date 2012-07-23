@@ -89,6 +89,7 @@
 -define(POST_TTL,        ?INFINITY).
 -define(USER_TTL,        ?INFINITY).
 -define(POST_RSVP_TTL,   60*60*24*100).
+-define(POST_LIKE_TTL,   60*60*24*100).
 -define(POST_RESPONSE_TAG_TTL, 60*60*24*100).
 -define(POST_IGNORE_TTL, 60*60*24*100).
 
@@ -111,6 +112,13 @@
           id                                        :: post_id(),
           timestamp                                 :: timestamp(),
           rsvp_user                                 :: user_id()
+         }).
+
+-define(POST_LIKE, post_like).
+-record(?POST_LIKE, {
+          id                                        :: post_id(),
+          timestamp                                 :: timestamp(),
+          like_user                                 :: user_id()
          }).
 
 -define(POST_RESPONSE_TAG, post_response_tag).

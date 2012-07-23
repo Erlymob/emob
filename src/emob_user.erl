@@ -38,6 +38,8 @@
 -export([unrsvp_post/2]).
 -export([ignore_post/2]).
 -export([unignore_post/2]).
+-export([like_post/2]).
+-export([unlike_post/2]).
 -export([process_post/2]).
 -export([notify_users/1]).
 
@@ -124,6 +126,16 @@ rsvp_post(UserId, PostId) ->
 unrsvp_post(UserId, PostId) ->
     emob_manager:safe_call({?EMOB_USER, UserId}, {unrsvp_post, PostId}).
 
+%% @doc Like a post
+-spec like_post(user_id(), post_id()) -> ok | error().
+like_post(UserId, PostId) ->
+    emob_manager:safe_call({?EMOB_USER, UserId}, {like_post, PostId}).
+
+%% @doc un-Like to a post
+-spec unlike_post(user_id(), post_id()) -> ok | error().
+unlike_post(UserId, PostId) ->
+    emob_manager:safe_call({?EMOB_USER, UserId}, {unlike_post, PostId}).
+
 %% @doc Ignore to a post
 -spec ignore_post(user_id(), post_id()) -> ok | error().
 ignore_post(UserId, PostId) ->
@@ -203,6 +215,16 @@ handle_call({rsvp_post, PostId}, _From, State) ->
 handle_call({unrsvp_post, PostId}, _From, State) ->
     UserId = State#state.user_id,
     Response = unrsvp_post_internal(UserId, PostId),
+    {reply, Response, State};
+
+handle_call({like_post, PostId}, _From, State) ->
+    UserId = State#state.user_id,
+    Response = like_post_internal(UserId, PostId),
+    {reply, Response, State};
+
+handle_call({unlike_post, PostId}, _From, State) ->
+    UserId = State#state.user_id,
+    Response = unlike_post_internal(UserId, PostId),
     {reply, Response, State};
 
 handle_call({ignore_post, PostId}, _From, State) ->
@@ -388,6 +410,27 @@ unrsvp_post_internal(UserId, PostId) ->
 get_rsvp_for_user(UserId, PostId) ->
     Rsvps = app_cache:get_data(?POST_RSVP, PostId),
     lists:keyfind(UserId, #post_rsvp.rsvp_user, Rsvps).
+
+%% @doc Rsvp a post for a given user
+-spec like_post_internal(user_id(), post_id()) -> ok | error().
+like_post_internal(UserId, PostId) ->
+    Entry = #post_like{id = PostId, like_user = UserId},
+    app_cache:set_data(?SAFE, Entry).
+
+%% @doc Unlike a post for a given user
+-spec unlike_post_internal(user_id(), post_id()) -> ok | error().
+unlike_post_internal(UserId, PostId) ->
+    case get_like_for_user(UserId, PostId) of
+        false ->
+            ok;
+        Entry ->
+            app_cache:remove_record(?SAFE, Entry)
+    end.
+
+-spec get_like_for_user(user_id(), post_id()) -> #post_like{} | false.
+get_like_for_user(UserId, PostId) ->
+    Likes = app_cache:get_data(?POST_LIKE, PostId),
+    lists:keyfind(UserId, #post_like.like_user, Likes).
 
 %% @doc Ignore a given post for a user
 -spec ignore_post_internal(user_id(), post_id()) -> ok | error().

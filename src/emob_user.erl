@@ -182,7 +182,7 @@ notify_users_of_post(Post) ->
 %% @doc Notify a given user that the post is ready for action
 %%      (min_users have rsvp'd)
 notify_user_of_readiness(PostId) ->
-    User = get_user_from_post(PostId),
+    User = get_user_from_post(emob_post:get_post(PostId)),
     notify_user_of_readiness(User, PostId).
 
 %% ------------------------------------------------------------------

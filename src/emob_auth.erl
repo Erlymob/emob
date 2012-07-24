@@ -29,6 +29,8 @@
          get_credentials/1,
          remove_credentials/1]).
 
+-export([get_user_from_token/1]).
+
 %% ------------------------------------------------------------------
 %% Includes and Defines
 %% ------------------------------------------------------------------
@@ -57,4 +59,10 @@ get_credentials(Token) ->
 -spec remove_credentials(token()) -> ok.
 remove_credentials(Token) ->
     emob_oauth_fsm:remove_credentials(Token).
+
+%% @doc Get a user based on the token
+-spec get_user_from_token(token()) -> [#user{}].
+get_user_from_token(Token) ->
+    app_cache:get_data_from_index(?SAFE, ?USER, Token, ?USER_ACCESS_TOKEN).
+    
 

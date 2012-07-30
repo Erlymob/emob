@@ -157,54 +157,65 @@ handle_get([<<"get_loc">>], Req0, _State) ->
             end
     end;
 
-handle_get([<<"get_request_token">>], Req, _State) ->
-    %% Here, the callback_url is in the body of the GET request
-    {Args, _Req0} = cowboy_http_req:body_qs(Req),
-    URL = proplists:get_value(?CALLBACK_URL, Args),
-    Response =
-    case emob_auth:get_request_token(URL) of
-        TokenData when is_record(TokenData, twitter_token_data) ->
-            json_token(TokenData);
-        Error ->
-            json_error(Error)
-    end,
-    cowboy_http_req:reply(200, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req);
+handle_get([<<"get_request_token">>], Req0, _State) ->
+    %% The callback_url is in the query string of the GET request
+    case cowboy_http_req:qs_val(?CALLBACK_URL, Req0) of
+        {undefined, Req} ->
+            cowboy_http_req:reply(400, Req);   %% bad request
+        %% /get_request_token?callback_url=:url
+        {CallbackUrl, Req} ->
+            {Code, Response} = case emob_auth:get_request_token(CallbackUrl) of
+                                   TokenData when is_record(TokenData, twitter_token_data) ->
+                                       {200, json_token(TokenData)};
+                                   Error ->
+                                       {400, json_error(Error)}
+                               end,
+            cowboy_http_req:reply(Code, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req)
+    end;
 
-handle_get([<<"get_access_token">>], Req, _State) ->
-    %% Here, the Token and Verifier are in the query string itself
-    {Args, _Req0} = cowboy_http_req:qs_vals(Req),
-    Token = proplists:get_value(?OAUTH_TOKEN, Args),
-    Verifier = proplists:get_value(?OAUTH_VERIFIER, Args),
-    Response =
-    case emob_auth:get_access_token(Token, Verifier) of
-       AccessData when is_record(AccessData, twitter_access_data) ->
-            json_access(AccessData);
-        Error ->
-            json_error(Error)
-    end,
-    cowboy_http_req:reply(200, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req);
+handle_get([<<"get_access_token">>], Req0, _State) ->
+    %% The Token and Verifier are in the query string itself
+    %% /get_access_token?oauth_token=:oauth_token&oauth_verifier=:oauth_verifier
+    {Token, Req1} = cowboy_http_req:qs_val(?OAUTH_TOKEN, Req0),
+    {Verifier, Req} = cowboy_http_req:qs_val(?OAUTH_VERIFIER, Req1),
+    if
+        Token =:= undefined orelse Verifier =:= undefined ->
+            cowboy_http_req:reply(400, Req);   %% bad request
+        true ->
+            {Code, Response} = case emob_auth:get_access_token(Token, Verifier) of
+                                   AccessData when is_record(AccessData, twitter_access_data) ->
+                                       {200, json_access(AccessData)};
+                                   Error ->
+                                       {400, json_error(Error)}
+                               end,
+            cowboy_http_req:reply(Code, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req)
+    end;
 
-handle_get([<<"get_credentials">>], Req, _State) ->
-    %% Here, the Token is in the body of the request
-    {Args, _Req0} = cowboy_http_req:body_qs(Req),
-    Token = proplists:get_value(?OAUTH_TOKEN, Args),
-    Response =
-    case emob_auth:get_credentials(Token) of
-       AccessData when is_record(AccessData, twitter_access_data) ->
-            json_access(AccessData);
-        Error ->
-            json_error(Error)
-    end,
-    cowboy_http_req:reply(200, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req);
+handle_get([<<"get_credentials">>], Req0, _State) ->
+    %% The Token is in the query string
+    %% /get_credentials?oauth_token=:oauth_token
+    case cowboy_http_req:qs_val(?OAUTH_TOKEN, Req0) of
+        {undefined, Req} ->
+            cowboy_http_req:reply(400, Req);   %% bad request
+        {Token, Req} ->
+            {Code, Response} = case emob_auth:get_credentials(Token) of
+                                   AccessData when is_record(AccessData, twitter_access_data) ->
+                                       json_access(AccessData);
+                                   Error ->
+                                       json_error(Error)
+                               end,
+            cowboy_http_req:reply(Code, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req)
+    end;
 
-handle_get([<<"remove_credentials">>], Req, _State) ->
-    %% Here, the Token is in the body of the request
-    {Args, _Req0} = cowboy_http_req:body_qs(Req),
-    Token = proplists:get_value(?OAUTH_TOKEN, Args),
-    emob_auth:remove_credentials(Token),
-    Response = json_ok(),
-    cowboy_http_req:reply(200, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req);
-
+handle_get([<<"remove_credentials">>], Req0, _State) ->
+    %% The Token is in the body of the request
+    case cowboy_http_req:qs_val(?OAUTH_TOKEN, Req0) of
+        {undefined, Req} ->
+            cowboy_http_req:reply(400, Req);   %% bad request
+        {Token, Req} ->
+            ok = emob_auth:remove_credentials(Token),
+            cowboy_http_req:reply(200, Req)  %% OK
+    end;
 
 handle_get(Path, Req, State) ->
     lager:warning("[~s] Malformed GET request to ~p~n", [State#state.peer, Path]),
@@ -284,8 +295,8 @@ location_center(_Location) ->
     {null, null}.
 
 
-ok_to_ejson() ->
-    {[{<<"code">>, <<"ok">>}]}.
+%% ok_to_ejson() ->
+%%     {[{<<"code">>, <<"ok">>}]}.
 
 token_to_ejson(TokenData) ->
     {[{?TOKEN, TokenData#twitter_token_data.access_token},
@@ -330,9 +341,9 @@ build_error_response({error, Error}) ->
 json_error(Error) ->
     ejson:encode(build_error_response(Error)).
 
-json_ok() ->
-    Result = ok_to_ejson(),
-    ejson:encode(build_valid_response(Result)).
+%% json_ok() ->
+%%     Result = ok_to_ejson(),
+%%     ejson:encode(build_valid_response(Result)).
 
 json_access(AccessData) ->
     Result = access_to_ejson(AccessData),
@@ -342,14 +353,14 @@ json_token(TokenData) ->
     Result = token_to_ejson(TokenData),
     ejson:encode(build_valid_response(Result)).
 
-json_post(Post) ->
-    json_post(Post, undefined).
+%% json_post(Post) ->
+%%     json_post(Post, undefined).
 
 json_post(Post, AttendingUserId) ->
     ejson:encode(post_to_ejson(Post, AttendingUserId)).
 
-json_posts(Posts) ->
-    json_posts(Posts, undefined).
+%% json_posts(Posts) ->
+%%     json_posts(Posts, undefined).
 
 json_posts(Posts, AttendingUserId) ->
     SortedPosts = lists:sort(fun compare_post/2, Posts),

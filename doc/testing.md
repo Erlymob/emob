@@ -1,6 +1,55 @@
 Testing from the command-line
 =============================
 
+Initial configuration for the Erlymob server Twitter user
+---------------------------------------------------------
+
+Erlymob needs a Twitter user to be able to receive tweets from
+other users. The `app.config` file used by Erlymob has a section for
+the *twitterl* Erlang application that looks like this:
+
+``` erlang
+{twitterl, [
+  %% Tweet parsers
+  {tweet_parsers, 2},
+  {requestors, 1},
+  {retry_count, 5},
+  %% Oauth Data
+  {oauth_consumer_key, "le6bGXNLfBNaDUbeOyJNog"},
+  {oauth_consumer_secret, "0n6qzMt1s9wJ0AxR4VQP3Hq84YzA6P6aFUV4e7Hvk"},
+  {oauth_access_token, "727027692-AKKgrMARJBw2moazuQelM3Xf0DSMCeeKSeGqbBzZ"},
+  {oauth_access_token_secret, "0jdjh2jH2HOF35XV1ATChaDkb9M7yPV7ynzt06q818"}
+]},
+```
+The OAuth tokens present in this section can be obtained by following
+these steps:
+
+1) Create a Twitter account that you're going to be using for the
+Erlymob server (e.g. *erlymob_server*) and make sure that Twitter is
+sending location data for the user.
+
+2) Sign in to [dev.twitter.com](http://dev.twitter.com) with the
+credentials of your new Twitter user.
+
+3) Create a new application by clicking on the
+[Create an app](https://dev.twitter.com/apps/new) link. You can use
+the name of the user for the application if you want
+(e.g. *erlymob_server*).
+
+4) In *Settings* be sure to fill in the following parameters before
+accepting the license terms and submitting:
+    * use anything for the website URL
+    * set a Callback URL (anything for now. it's necessary for the callback token stuff to work)
+
+5) Create your access token (button at the bottom of the screen).
+
+6) Now, go to *Settings*, and set *Application Type* to *Read and
+Write*.
+
+7) Grab the consumer key, secret, token, token_secret, and update your
+`app.config` file.
+
+
 Retrieving OAuth Tokens and making requests from the command line
 -----------------------------------------------------------------
 
@@ -80,3 +129,35 @@ Accessing the Erlymob HTTP API
     TOKEN='630384097-B0BwxDFRh8zVsbAhjaN42rfRleo7j4tZwvlH7iwq'
     MOBS_URL="http://localhost:8080/mobs?token=$TOKEN"
     curl -v -H "Accept: application/json" -X GET $MOBS_URL
+
+Result:
+``` javascript
+[
+  {
+    "id": 230304686060761088,
+    "tweet": "@erlymob_server This is my second message today",
+    "user": "erlymob3",
+    "created": 1343743890,
+    "where": {
+      "latitude":null,
+      "longitude":null
+    },
+    "when": 1343743890,
+    "rsvps": 0,
+    "going": false
+  },
+  {
+    "id": 230303751351709696,
+    "tweet": "@erlymob_server Do you read me?",
+    "user": "erlymob3",
+    "created": 1343743667,
+    "where": {
+      "latitude": null,
+      "longitude": null
+    },
+    "when": 1343743667,
+    "rsvps": 0,
+    "going": false
+  }
+]
+```

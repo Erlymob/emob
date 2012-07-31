@@ -133,11 +133,14 @@ handle_get([<<"mobs">>], Req0, _State) ->
                     %% Once we support location-based requests we'll no longer return all the posts.
                     Response = json_posts(emob_post:get_all_posts(), AttendingUserId),
                     cowboy_http_req:reply(200, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req);
-                {error, _Reason} = Error ->
-                    lager:info("Could not find user for token '~s': ~p~n", [Token, Error]),
+                [] ->
+                    lager:info("Could not find user for token '~s'~n", [Token]),
                     %% WARNING: an attacker may gather information about
                     %%          valid tokens with this response code.
-                    cowboy_http_req:reply(404, Req)  %% not found
+                    cowboy_http_req:reply(404, Req);  %% not found
+                {error, _Reason} = Error ->
+                    lager:info("Error looking up user for token '~s': ~p~n", [Token, Error]),
+                    cowboy_http_req:reply(500, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], json_error(Error), Req)
             end
     end;
 
@@ -168,7 +171,7 @@ handle_get([<<"get_request_token">>], Req0, _State) ->
                                    TokenData when is_record(TokenData, twitter_token_data) ->
                                        {200, json_token(TokenData)};
                                    Error ->
-                                       {400, json_error(Error)}
+                                       {500, json_error(Error)}
                                end,
             cowboy_http_req:reply(Code, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req)
     end;
@@ -186,7 +189,7 @@ handle_get([<<"get_access_token">>], Req0, _State) ->
                                    AccessData when is_record(AccessData, twitter_access_data) ->
                                        {200, json_access(AccessData)};
                                    Error ->
-                                       {400, json_error(Error)}
+                                       {500, json_error(Error)}
                                end,
             cowboy_http_req:reply(Code, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req)
     end;
@@ -200,9 +203,9 @@ handle_get([<<"get_credentials">>], Req0, _State) ->
         {Token, Req} ->
             {Code, Response} = case emob_auth:get_credentials(Token) of
                                    AccessData when is_record(AccessData, twitter_access_data) ->
-                                       json_access(AccessData);
+                                       {200, json_access(AccessData)};
                                    Error ->
-                                       json_error(Error)
+                                       {500, json_error(Error)}
                                end,
             cowboy_http_req:reply(Code, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req)
     end;
@@ -219,7 +222,7 @@ handle_get([<<"remove_credentials">>], Req0, _State) ->
 
 handle_get(Path, Req, State) ->
     lager:warning("[~s] Malformed GET request to ~p~n", [State#state.peer, Path]),
-    cowboy_http_req:reply(404, Req).   %% not found
+    cowboy_http_req:reply(400, Req).   %% bad request
 
 
 %% @doc Create or update en entity.
@@ -250,7 +253,7 @@ handle_post([<<"rsvp">>], Req0, _State) ->
 
 handle_post(Path, Req, State) ->
     lager:warning("[~s] Malformed POST request to ~p~n", [State#state.peer, Path]),
-    cowboy_http_req:reply(404, Req).   %% not found
+    cowboy_http_req:reply(400, Req).   %% bad request
 
 
 %% @doc Delete an entity.

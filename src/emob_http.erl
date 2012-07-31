@@ -318,6 +318,7 @@ post_to_ejson(Post = #post{post_data = Tweet}, AttendingUserId) ->
       {<<"created">>, Tweet#tweet.created_at},
       {<<"where">>, {post_coordinates(Post)}},
       {<<"when">>, Tweet#tweet.created_at},
+      {<<"hashtag">>, Post#post.response_tag},
       {<<"rsvps">>, length(Rsvps)} | Tail]}.
 
 

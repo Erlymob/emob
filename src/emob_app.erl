@@ -35,7 +35,13 @@ stop(_State) ->
 
 %% Get the table definitions for app_cache
 get_table_infos() ->
-    [get_table_info(Name) || Name <- [?POST, ?POST_RSVP, ?POST_LIKE, ?POST_RESPONSE_TAG, ?POST_IGNORE, ?USER]].
+    [get_table_info(Name) || Name <- [?POST, 
+                                      ?POST_RSVP, 
+                                      ?POST_LIKE, 
+                                      ?RESPONSE, 
+                                      ?POST_RESPONSE_TAG, 
+                                      ?POST_IGNORE, 
+                                      ?USER]].
 
 get_table_info(?POST) ->
     app_cache_table_info:table_info(?POST, ordered_set);
@@ -43,6 +49,8 @@ get_table_info(?POST_RSVP) ->
     app_cache_table_info:table_info(?POST_RSVP, bag, ?POST_RSVP_TTL);
 get_table_info(?POST_LIKE) ->
     app_cache_table_info:table_info(?POST_LIKE, bag, ?POST_LIKE_TTL);
+get_table_info(?RESPONSE) ->
+    app_cache_table_info:table_info(?RESPONSE, ordered_set, ?RESPONSE_TTL);
 get_table_info(?POST_RESPONSE_TAG) ->
     app_cache_table_info:table_info(?POST_RESPONSE_TAG, set, ?POST_RESPONSE_TAG_TTL);
 get_table_info(?POST_IGNORE) ->

@@ -46,8 +46,10 @@
 -type callback_pid()                          :: pid() | atom().
 -type post_id()                               :: integer().
 -type post_processed_status()                 :: boolean().
+-type response_processed_status()             :: boolean().
 -type emob_seq_key()                          :: any().
 -type emob_seq_value()                        :: non_neg_integer().
 -type emob_request_type()                     :: safe | dirty.
 -type emob_location_type()                    :: atom().
 -type emob_response_tag()                     :: binary().
+-type emob_response_id()                      :: {emob_response_tag(), twitter_id()}.

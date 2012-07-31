@@ -43,6 +43,7 @@
 -export([unlike_post/2]).
 -export([process_post/2]).
 -export([notify_users_of_post/1]).
+-export([notify_users_of_response/1]).
 -export([notify_user_of_readiness/1]).
 
 %% ------------------------------------------------------------------
@@ -175,6 +176,16 @@ notify_users_of_post(Post) ->
     UserFun = fun() -> mnesia:foldl(fun(X, Acc) ->
                     Target = X#user.callback,
                     twitterl:respond_to_target(Target, {post, Post}),
+                    Acc
+                end, [], ?USER) end,
+    mnesia:transaction(UserFun).
+
+%% @doc Notify all the users that a new response exists
+% TODO have callback users in a seperate table, efficiently notify them, etc.
+notify_users_of_response(Response) ->
+    UserFun = fun() -> mnesia:foldl(fun(X, Acc) ->
+                    Target = X#user.callback,
+                    twitterl:respond_to_target(Target, {response, Response}),
                     Acc
                 end, [], ?USER) end,
     mnesia:transaction(UserFun).

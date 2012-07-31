@@ -29,6 +29,7 @@
 -export([set_min_users_for_post/2]).
 
 -export([get_tweet_locations/1]).
+-export([get_hashtags/1]).
 -export([get_embedded_locations/1]).
 
 %% ------------------------------------------------------------------
@@ -73,6 +74,10 @@ set_min_users_for_post(PostId, Count) ->
 -spec get_tweet_locations(#post{}) -> [#location_data{}] | undefined.
 get_tweet_locations(Post) ->
     get_tweet_locations_internal(Post#post.post_data).
+
+-spec get_hashtags(#post{}) -> [#location_data{}] | undefined.
+get_hashtags(Post) ->
+    get_hashtags_internal(Post#post.post_data).
 
 -spec get_embedded_locations(#post{}) -> [#location_data{}] | undefined.
 get_embedded_locations(Post) ->
@@ -214,6 +219,23 @@ update_post_response_tag(Post, ResponseTag) ->
     app_cache:set_data(?SAFE, Post#post{response_tag = BResponseTag}),
     app_cache:set_data(?SAFE, #post_response_tag{id = BResponseTag,
                                                  post_id = Post#post.id}).
+
+
+%% @doc Get the Hashtags embedded in the tweet
+-spec get_hashtags_internal(#tweet{}) -> [emob_response_tag()].
+get_hashtags_internal(Tweet) ->
+    case Tweet#tweet.entities of
+        Entities when is_record(Entities, entities) ->
+            case Entities#entities.hashtags of
+                undefined ->
+                    [];
+                Other ->
+                    Other
+            end;
+        _ ->
+            []
+    end.
+
 %% @doc Get the locations embedded in the place field of the tweet
 -spec get_tweet_locations_internal(#tweet{}) -> [#location_data{}].
 get_tweet_locations_internal(#tweet{place = Place} = Tweet) when is_record(Place, twitter_place) ->

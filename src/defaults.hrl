@@ -11,7 +11,9 @@
 
 %% EMOB DEFINES
 -define(EMOB_POST_RECEIVER, emob_post_receiver).
+-define(EMOB_RESPONSE_TAG_RECEIVER, emob_response_tag_receiver).
 -define(EMOB_POST_DISTRIBUTOR, emob_post_distributor).
+-define(EMOB_RESPONSE_DISTRIBUTOR, emob_response_distributor).
 -define(EMOB_USER, emob_user).
 -define(LATEST, <<"latest">>).
 -define(INVALID_BOOLEAN, <<"invalid_boolean">>).
@@ -23,6 +25,7 @@
 -define(TWITTER_ERROR, <<"twitter_error">>).
 -define(STARTUP_TIMER, 5000).
 -define(MAX_POSTS, 200).
+-define(MAX_RESPONSES, 200).
 
 -define(EMOB_RECEIVER_SEQ, emob_receiver_seq).
 -define(EMOB_RESPONSE_BASE, "mob").
@@ -91,6 +94,7 @@
 -define(USER_TTL,        ?INFINITY).
 -define(POST_RSVP_TTL,   60*60*24*100).
 -define(POST_LIKE_TTL,   60*60*24*100).
+-define(RESPONSE_TTL, 60*60*24*100).
 -define(POST_RESPONSE_TAG_TTL, 60*60*24*100).
 -define(POST_IGNORE_TTL, 60*60*24*100).
 
@@ -106,6 +110,15 @@
           min_users                                 :: integer(),
           response_tag                              :: emob_response_tag(),
           processed = false                         :: post_processed_status()
+         }).
+
+-define(RESPONSE, response).
+-record(?RESPONSE, {
+          id                                        :: emob_response_id(),
+          timestamp                                 :: timestamp(),
+          locations = []                            :: [#location_data{}],
+          response_data                             :: #tweet{},
+          processed = false                         :: response_processed_status()
          }).
 
 

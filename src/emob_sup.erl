@@ -40,7 +40,10 @@ start_link() ->
 
 -spec init(_Args::any()) -> {ok, any()} | {ok, any(), timeout()} | ignore | {stop, Reason :: any()}.
 init([]) ->
-    Receiver = ?SUPERVISOR(make_ref(), supervisor, emob_post_receiver_sup, []),
-    Distributor = ?SUPERVISOR(make_ref(), supervisor, emob_post_distributor_sup, []),
+    PostReceiver = ?SUPERVISOR(make_ref(), supervisor, emob_post_receiver_sup, []),
+    ResponseTagReceiver = ?SUPERVISOR(make_ref(), supervisor, emob_response_tag_receiver_sup, []),
+    PostDistributor = ?SUPERVISOR(make_ref(), supervisor, emob_post_distributor_sup, []),
+    ResponseDistributor = ?SUPERVISOR(make_ref(), supervisor, emob_response_distributor_sup, []),
     User = ?SUPERVISOR(make_ref(), supervisor, emob_user_sup, []),
-    {ok, { {one_for_one, 5, 300}, [Receiver, Distributor, User]}}.
+    {ok, { {one_for_one, 5, 300}, [PostReceiver, ResponseTagReceiver, 
+                                   PostDistributor, ResponseDistributor, User]}}.

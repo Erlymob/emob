@@ -89,33 +89,29 @@ handle_put(Path, Req, State) ->
 
 
 %% @doc Retrieve an entity.
+%% @doc Returns the object representation of the specified mob, including
+%%      the original tweet info, plus parsed location and time data and
+%%      participants who have RSVP’d.
+%%      Params:
+%%      id: the ID of the mob we want to retrieve
+%%      token (optional): the access token for the twitter API for the user
+%%                        whose data we wish to retrieve. If there’s no token
+%%                        given, we can return the mob, but the "going" flag
+%%                        will be missing.
 -spec handle_get(Path :: cowboy_dispatcher:tokens(), http_req(), #state{}) -> {ok, http_req()}.
-handle_get([<<"mobs">>], Req0, _State) ->
-    {Value, Req} = cowboy_http_req:qs_val(?TOKEN, Req0),
-    Posts = case Value of
-                %% /mobs
-                undefined ->
-                    emob_post:get_all_posts();
-                %% /mobs?token=:token
-                Token ->
-                    {ok, Values} = emob_user:get_posts(Token),
-                    Values
-            end,
-    %% lager:debug("Found the foillowing posts:~n~p~n", [Posts]),
-    Response = json_posts(Posts),
-    cowboy_http_req:reply(200, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req);
-
 handle_get([<<"mob">>], Req0, _State) ->
-    {Value, Req} = cowboy_http_req:qs_val(?ID, Req0),
-    case Value of
-        undefined ->
-            lager:info("Missing 'id' in /mob request; qs=~p~n", [Req]),
+    %% /mob?id=:id[&token=:token]
+    case cowboy_http_req:qs_val(?ID, Req0) of
+        {undefined, Req1} ->
+            {RawQs, Req} = cowboy_http_req:raw_qs(Req1),
+            lager:info("Missing 'id' in /mob request; qs=~p~n", [RawQs]),
             cowboy_http_req:reply(400, Req);   %% bad request
-        PostId ->
-            %% /mob?id=:id
+        {PostId, Req1} ->
+            %% The token (user ID) is optional
+            {AttendingUserId, Req} = user_id_from_req(Req1),
             case emob_post:get_post(bstr:to_integer(PostId)) of
                 #post{} = Post ->
-                    Response = json_post(Post),
+                    Response = json_post(Post, AttendingUserId),
                     cowboy_http_req:reply(200, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req);
                 _ ->
                     lager:info("Could not find post with id=~p~n", [PostId]),
@@ -123,31 +119,37 @@ handle_get([<<"mob">>], Req0, _State) ->
             end
     end;
 
-handle_get([<<"rsvp">>], Req0, _State) ->
-    {Value, Req1} = cowboy_http_req:qs_val(?ID, Req0),
-    case Value of
-        undefined ->
-            cowboy_http_req:reply(400, Req1);   %% bad request
-        PostId ->
-            %% /rsvp?id=:id&token=:token
-            case cowboy_http_req:qs_val(?TOKEN, Req1) of
-                {undefined, Req} ->
-                    cowboy_http_req:reply(400, Req);   %% bad request
-                {Token, Req} ->
-                    Going = emob_user:toggle_post_rsvp(Token, PostId),
-
-                    Response = ejson:encode({[{<<"going">>, Going}]}),
-                    cowboy_http_req:reply(200, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req)
+handle_get([<<"mobs">>], Req0, _State) ->
+    %% /mobs
+    case cowboy_http_req:qs_val(?TOKEN, Req0) of
+        {undefined, Req1} ->
+            {RawQs, Req} = cowboy_http_req:raw_qs(Req1),
+            lager:info("Missing 'token' in /mob request; qs=~p~n", [RawQs]),
+            cowboy_http_req:reply(400, Req);   %% bad request
+        %% /mobs?token=:token
+        {Token, Req} ->
+            case emob_auth:get_user_from_token(Token) of
+                [#user{id = AttendingUserId}] ->
+                    %% Once we support location-based requests we'll no longer return all the posts.
+                    Response = json_posts(emob_post:get_all_posts(), AttendingUserId),
+                    cowboy_http_req:reply(200, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req);
+                [] ->
+                    lager:info("Could not find user for token '~s'~n", [Token]),
+                    %% WARNING: an attacker may gather information about
+                    %%          valid tokens with this response code.
+                    cowboy_http_req:reply(404, Req);  %% not found
+                {error, _Reason} = Error ->
+                    lager:info("Error looking up user for token '~s': ~p~n", [Token, Error]),
+                    cowboy_http_req:reply(500, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], json_error(Error), Req)
             end
     end;
 
 handle_get([<<"get_loc">>], Req0, _State) ->
-    {Value1, Req} = cowboy_http_req:qs_val(?TOKEN, Req0),
-    case Value1 of
-        undefined ->
+    case cowboy_http_req:qs_val(?TOKEN, Req0) of
+        {undefined, Req} ->
             cowboy_http_req:reply(400, Req);   %% bad request
         %% /get_loc?token=:token
-        Token ->
+        {Token, Req} ->
             case emob_user:get_user_location(Token, ?LOCATION_TYPE_TWITTER) of
                 Location when is_record(Location, location_data) ->
                     {Lat, Lon} = location_center(Location),
@@ -158,65 +160,100 @@ handle_get([<<"get_loc">>], Req0, _State) ->
             end
     end;
 
-handle_get([<<"get_request_token">>], Req, _State) ->
-    %% Here, the callback_url is in the body of the GET request
-    {Args, _Req0} = cowboy_http_req:body_qs(Req),
-    URL = proplists:get_value(?CALLBACK_URL, Args),
-    Response =
-    case emob_auth:get_request_token(URL) of
-        TokenData when is_record(TokenData, twitter_token_data) ->
-            json_token(TokenData);
-        Error ->
-            json_error(Error)
-    end,
-    cowboy_http_req:reply(200, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req);
+handle_get([<<"get_request_token">>], Req0, _State) ->
+    %% The callback_url is in the query string of the GET request
+    case cowboy_http_req:qs_val(?CALLBACK_URL, Req0) of
+        {undefined, Req} ->
+            cowboy_http_req:reply(400, Req);   %% bad request
+        %% /get_request_token?callback_url=:url
+        {CallbackUrl, Req} ->
+            {Code, Response} = case emob_auth:get_request_token(CallbackUrl) of
+                                   TokenData when is_record(TokenData, twitter_token_data) ->
+                                       {200, json_token(TokenData)};
+                                   Error ->
+                                       {500, json_error(Error)}
+                               end,
+            cowboy_http_req:reply(Code, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req)
+    end;
 
-handle_get([<<"get_access_token">>], Req, _State) ->
-    %% Here, the Token and Verifier are in the query string itself
-    {Args, _Req0} = cowboy_http_req:qs_vals(Req),
-    Token = proplists:get_value(?OAUTH_TOKEN, Args),
-    Verifier = proplists:get_value(?OAUTH_VERIFIER, Args),
-    Response =
-    case emob_auth:get_access_token(Token, Verifier) of
-       AccessData when is_record(AccessData, twitter_access_data) ->
-            json_access(AccessData);
-        Error ->
-            json_error(Error)
-    end,
-    cowboy_http_req:reply(200, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req);
+handle_get([<<"get_access_token">>], Req0, _State) ->
+    %% The Token and Verifier are in the query string itself
+    %% /get_access_token?oauth_token=:oauth_token&oauth_verifier=:oauth_verifier
+    {Token, Req1} = cowboy_http_req:qs_val(?OAUTH_TOKEN, Req0),
+    {Verifier, Req} = cowboy_http_req:qs_val(?OAUTH_VERIFIER, Req1),
+    if
+        Token =:= undefined orelse Verifier =:= undefined ->
+            cowboy_http_req:reply(400, Req);   %% bad request
+        true ->
+            {Code, Response} = case emob_auth:get_access_token(Token, Verifier) of
+                                   AccessData when is_record(AccessData, twitter_access_data) ->
+                                       {200, json_access(AccessData)};
+                                   Error ->
+                                       {500, json_error(Error)}
+                               end,
+            cowboy_http_req:reply(Code, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req)
+    end;
 
-handle_get([<<"get_credentials">>], Req, _State) ->
-    %% Here, the Token is in the body of the request
-    {Args, _Req0} = cowboy_http_req:body_qs(Req),
-    Token = proplists:get_value(?OAUTH_TOKEN, Args),
-    Response =
-    case emob_auth:get_credentials(Token) of
-       AccessData when is_record(AccessData, twitter_access_data) ->
-            json_access(AccessData);
-        Error ->
-            json_error(Error)
-    end,
-    cowboy_http_req:reply(200, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req);
+handle_get([<<"get_credentials">>], Req0, _State) ->
+    %% The Token is in the query string
+    %% /get_credentials?oauth_token=:oauth_token
+    case cowboy_http_req:qs_val(?OAUTH_TOKEN, Req0) of
+        {undefined, Req} ->
+            cowboy_http_req:reply(400, Req);   %% bad request
+        {Token, Req} ->
+            {Code, Response} = case emob_auth:get_credentials(Token) of
+                                   AccessData when is_record(AccessData, twitter_access_data) ->
+                                       {200, json_access(AccessData)};
+                                   Error ->
+                                       {500, json_error(Error)}
+                               end,
+            cowboy_http_req:reply(Code, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req)
+    end;
 
-handle_get([<<"remove_credentials">>], Req, _State) ->
-    %% Here, the Token is in the body of the request
-    {Args, _Req0} = cowboy_http_req:body_qs(Req),
-    Token = proplists:get_value(?OAUTH_TOKEN, Args),
-    emob_auth:remove_credentials(Token),
-    Response = json_ok(),
-    cowboy_http_req:reply(200, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req);
-
+handle_get([<<"remove_credentials">>], Req0, _State) ->
+    %% The Token is in the body of the request
+    case cowboy_http_req:qs_val(?OAUTH_TOKEN, Req0) of
+        {undefined, Req} ->
+            cowboy_http_req:reply(400, Req);   %% bad request
+        {Token, Req} ->
+            ok = emob_auth:remove_credentials(Token),
+            cowboy_http_req:reply(200, Req)  %% OK
+    end;
 
 handle_get(Path, Req, State) ->
     lager:warning("[~s] Malformed GET request to ~p~n", [State#state.peer, Path]),
-    cowboy_http_req:reply(404, Req).   %% not found
+    cowboy_http_req:reply(400, Req).   %% bad request
 
 
 %% @doc Create or update en entity.
 -spec handle_post(Path :: cowboy_dispatcher:tokens(), http_req(), #state{}) -> {ok, http_req()}.
+handle_post([<<"rsvp">>], Req0, _State) ->
+    %% /rsvp with id=:id&token=:token&going=true|false in the body
+    {PostId, Req1} = cowboy_http_req:qs_val(?ID, Req0),
+    {Token, Req2} = cowboy_http_req:qs_val(?TOKEN, Req1),
+    {Going, Req} = cowboy_http_req:qs_val(?GOING, Req2),
+    if
+        PostId =:= undefined orelse Token =:= undefined orelse Going =:= undefined ->
+            cowboy_http_req:reply(400, Req1);   %% bad request
+        true ->
+            case emob_auth:get_user_from_token(Token) of
+                [#twitter_user{id_str = UserId}] ->
+                    ok = case to_boolean(Going) of
+                             true  -> emob_user:rsvp_post(UserId, PostId);
+                             false -> emob_user:unrsvp_post(UserId, PostId)
+                         end,
+                    cowboy_http_req:reply(200, Req);
+                {error, _Reason} = Error ->
+                    lager:info("Could not find user for token '~s': ~p~n", [Token, Error]),
+                    %% WARNING: an attacker may gather information about
+                    %%          valid tokens with this response code.
+                    cowboy_http_req:reply(400, Req1)  %% bad request
+            end
+    end;
+
 handle_post(Path, Req, State) ->
     lager:warning("[~s] Malformed POST request to ~p~n", [State#state.peer, Path]),
-    cowboy_http_req:reply(404, Req).   %% not found
+    cowboy_http_req:reply(400, Req).   %% bad request
 
 
 %% @doc Delete an entity.
@@ -261,8 +298,8 @@ location_center(_Location) ->
     {null, null}.
 
 
-ok_to_ejson() ->
-    {[{<<"code">>, <<"ok">>}]}.
+%% ok_to_ejson() ->
+%%     {[{<<"code">>, <<"ok">>}]}.
 
 token_to_ejson(TokenData) ->
     {[{?TOKEN, TokenData#twitter_token_data.access_token},
@@ -274,14 +311,14 @@ access_to_ejson(AccessData) ->
       {?USER_ID, AccessData#twitter_access_data.user_id},
       {?SCREEN_NAME, AccessData#twitter_access_data.screen_name}]}.
 
-post_to_ejson(Post = #post{post_data = Tweet}) ->
+post_to_ejson(Post = #post{post_data = Tweet}, AttendingUserId) ->
     Rsvps = emob_post:get_rsvps(Post#post.id),
     %% lager:debug("Rsvps: ~p~n", [Rsvps]),
-    {UserName, Going} = case Tweet#tweet.user of
-                            #twitter_user{screen_name = ScreenName, id_str = UserId} when is_binary(ScreenName) ->
-                                {ScreenName, lists:member(UserId, Rsvps)};
-                            _ ->
-                                {null, false}
+    {UserName, Tail} = case Tweet#tweet.user of
+                           #twitter_user{screen_name = ScreenName, id_str = AttendingUserId} when is_binary(ScreenName) ->
+                               {ScreenName, [{?GOING, lists:member(AttendingUserId, Rsvps)}]};
+                           _ ->
+                               {null, []}
                         end,
     lager:debug("User: ~p~n", [UserName]),
     %% lager:debug("Post ID: ~p~n", [Post#post.id]),
@@ -293,8 +330,7 @@ post_to_ejson(Post = #post{post_data = Tweet}) ->
       {<<"where">>, {[{<<"latitude">>, Lat},
                       {<<"longitude">>, Lon}]}},
       {<<"when">>, Tweet#tweet.created_at},
-      {<<"rsvps">>, length(Rsvps)},
-      {<<"going">>, Going}]}.
+      {<<"rsvps">>, length(Rsvps)} | Tail]}.
 
 
 build_valid_response(Result) ->
@@ -308,9 +344,9 @@ build_error_response({error, Error}) ->
 json_error(Error) ->
     ejson:encode(build_error_response(Error)).
 
-json_ok() ->
-    Result = ok_to_ejson(),
-    ejson:encode(build_valid_response(Result)).
+%% json_ok() ->
+%%     Result = ok_to_ejson(),
+%%     ejson:encode(build_valid_response(Result)).
 
 json_access(AccessData) ->
     Result = access_to_ejson(AccessData),
@@ -320,14 +356,54 @@ json_token(TokenData) ->
     Result = token_to_ejson(TokenData),
     ejson:encode(build_valid_response(Result)).
 
-json_post(Post) ->
-    ejson:encode(post_to_ejson(Post)).
+%% json_post(Post) ->
+%%     json_post(Post, undefined).
 
-json_posts(Posts) ->
-    SortedPosts = lists:sort(fun compare_post/2, Posts),
-    ejson:encode([post_to_ejson(SortedPost) || SortedPost <- SortedPosts]).
+json_post(Post, AttendingUserId) ->
+    ejson:encode(post_to_ejson(Post, AttendingUserId)).
+
+%% json_posts(Posts) ->
+%%     json_posts(Posts, undefined).
+
+json_posts(Posts, AttendingUserId) ->
+    %% FIXME Hack added to filter invalid posts (with 'undefined' IDs).
+    ValidPosts = lists:filter(fun (Post) -> Post#post.id =/= undefined end, Posts),
+    SortedPosts = lists:sort(fun compare_post/2, ValidPosts),
+    ejson:encode([post_to_ejson(SortedPost, AttendingUserId) || SortedPost <- SortedPosts]).
 
 compare_post(#post{post_data = T1}, #post{post_data = T2}) ->
     T1#tweet.created_at > T2#tweet.created_at.
 
 
+user_id_from_req(Req0) ->
+    case cowboy_http_req:qs_val(?TOKEN, Req0) of
+        {undefined, _Req} = Result ->
+            Result;
+        {Token, Req} ->
+            case emob_auth:get_user_from_token(Token) of
+                [#twitter_user{id_str = UserId}] ->
+                    {UserId, Req};
+                Error ->
+                    lager:info("Could not find user for token '~s': ~p~n", [Token, Error]),
+                    {undefined, Req}
+            end
+    end.
+
+
+-spec to_boolean(binary()) -> boolean().
+to_boolean(<<"true">>) ->
+    true;
+to_boolean(<<"false">>) ->
+    false;
+to_boolean(<<"1">>) ->
+    true;
+to_boolean(<<"0">>) ->
+    false;
+to_boolean(<<"yes">>) ->
+    true;
+to_boolean(<<"no">>) ->
+    false;
+to_boolean(<<"TRUE">>) ->
+    true;
+to_boolean(<<"FALSE">>) ->
+    false.

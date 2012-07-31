@@ -36,7 +36,7 @@
 -define(USER_ACCESS_TOKEN, access_token).
 -define(USER_TWITTER_ID, twitter_id).
 -define(ID, <<"id">>).
-
+-define(GOING, <<"going">>).
 
 %% TWITTERL DEFINES
 -define(CALLBACK_URL, <<"callback_url">>).
@@ -152,4 +152,3 @@
           callback                                  :: target(),
           tweet                                    :: #tweet{}
          }).
-

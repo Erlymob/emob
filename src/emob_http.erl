@@ -366,7 +366,9 @@ json_post(Post, AttendingUserId) ->
 %%     json_posts(Posts, undefined).
 
 json_posts(Posts, AttendingUserId) ->
-    SortedPosts = lists:sort(fun compare_post/2, Posts),
+    %% FIXME Hack added to filter invalid posts (with 'undefined' IDs).
+    ValidPosts = lists:filter(fun (Post) -> Post#post.id =/= undefined end, Posts),
+    SortedPosts = lists:sort(fun compare_post/2, ValidPosts),
     ejson:encode([post_to_ejson(SortedPost, AttendingUserId) || SortedPost <- SortedPosts]).
 
 compare_post(#post{post_data = T1}, #post{post_data = T2}) ->

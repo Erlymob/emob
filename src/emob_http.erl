@@ -13,6 +13,7 @@
 
 -compile([{parse_transform, lager_transform}]).
 
+-behaviour(cowboy_http_handler).
 
 %% ------------------------------------------------------------------
 %% API Function Exports

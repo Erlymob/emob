@@ -28,6 +28,7 @@
 -export([delete_post/1]).
 -export([set_min_users_for_post/2]).
 
+-export([get_tweet_locations/1]).
 -export([get_embedded_locations/1]).
 
 %% ------------------------------------------------------------------
@@ -68,6 +69,10 @@ delete_post(PostId) ->
 -spec set_min_users_for_post(post_id(), integer()) -> ok | error().
 set_min_users_for_post(PostId, Count) ->
     emob_manager:safe_cast({?EMOB_POST_RECEIVER, ?EMOB_POST_RECEIVER}, {set_min_users_for_post, PostId, Count}).
+
+-spec get_tweet_locations(#post{}) -> [#location_data{}] | undefined.
+get_tweet_locations(Post) ->
+    get_tweet_locations_internal(Post#post.post_data).
 
 -spec get_embedded_locations(#post{}) -> [#location_data{}] | undefined.
 get_embedded_locations(Post) ->
@@ -112,10 +117,11 @@ handle_cast({process_post, Tweet}, State) ->
     PostId = Tweet#tweet.id,
     case app_cache:key_exists(?SAFE, ?POST, PostId) of
         false ->
-            Locations = get_embedded_locations_internal(Tweet),
+            EmbeddedLocations = get_embedded_locations_internal(Tweet),
+            TweetLocations = get_tweet_locations_internal(Tweet),
             PostRecord = #post{
                     id = PostId,
-                    locations = Locations,
+                    locations = EmbeddedLocations ++ TweetLocations,
                     post_data = Tweet},
             respond_to_post(PostRecord, State),
             emob_post_distributor:distribute_post(PostId);
@@ -208,6 +214,17 @@ update_post_response_tag(Post, ResponseTag) ->
     app_cache:set_data(?SAFE, Post#post{response_tag = BResponseTag}),
     app_cache:set_data(?SAFE, #post_response_tag{id = BResponseTag,
                                                  post_id = Post#post.id}).
+%% @doc Get the locations embedded in the place field of the tweet
+-spec get_tweet_locations_internal(#tweet{}) -> [#location_data{}].
+get_tweet_locations_internal(#tweet{place = Place} = Tweet) when is_record(Place, twitter_place) ->
+    Timestamp = Tweet#tweet.created_at,
+    [#location_data{type = ?LOCATION_TYPE_TWITTER,
+                    location = (Tweet#tweet.user)#twitter_user.location,
+                    place = Place,
+                    timestamp = Timestamp}];
+get_tweet_locations_internal(_) ->
+    [].
+
 
 %% @doc Get the locations embedded in any known URLs in the tweet
 -spec get_embedded_locations_internal(#tweet{}) -> [#location_data{}].

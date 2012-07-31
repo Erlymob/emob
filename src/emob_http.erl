@@ -151,9 +151,8 @@ handle_get([<<"get_loc">>], Req0, _State) ->
         %% /get_loc?token=:token
         {Token, Req} ->
             case emob_user:get_user_location(Token, ?LOCATION_TYPE_TWITTER) of
-                Location when is_record(Location, location_data) ->
-                    {Lat, Lon} = location_center(Location),
-                    Response = ejson:encode({[{<<"latitude">>, Lat}, {<<"longitude">>, Lon}]}),
+                #location_data{} = Location ->
+                    Response = ejson:encode({location_centroid(Location)}),
                     cowboy_http_req:reply(200, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req);
                 _ ->
                     cowboy_http_req:reply(404, Req)   %% not found
@@ -289,15 +288,6 @@ printable_path(Req) ->
     Path.
 
 
-location_center([Lat, Lon]) ->
-    {Lat, Lon};
-location_center([TopLat, LeftLon, BotLat, RightLon]) ->
-    {TopLat + (BotLat - TopLat) / 2, LeftLon + (RightLon - LeftLon) / 2};
-location_center(_Location) ->
-    lager:debug("Invalid location ~p~n", [_Location]),
-    {null, null}.
-
-
 %% ok_to_ejson() ->
 %%     {[{<<"code">>, <<"ok">>}]}.
 
@@ -320,17 +310,75 @@ post_to_ejson(Post = #post{post_data = Tweet}, AttendingUserId) ->
                            _ ->
                                {null, []}
                         end,
-    lager:debug("User: ~p~n", [UserName]),
+    %% lager:debug("User: ~p~n", [UserName]),
     %% lager:debug("Post ID: ~p~n", [Post#post.id]),
-    {Lat, Lon} = location_center(Tweet#tweet.coordinates),
     {[{<<"id">>,      Post#post.id},
       {<<"tweet">>,   Tweet#tweet.text},
       {<<"user">>,    UserName},
       {<<"created">>, Tweet#tweet.created_at},
-      {<<"where">>, {[{<<"latitude">>, Lat},
-                      {<<"longitude">>, Lon}]}},
+      {<<"where">>, {post_coordinates(Post)}},
       {<<"when">>, Tweet#tweet.created_at},
       {<<"rsvps">>, length(Rsvps)} | Tail]}.
+
+
+post_coordinates(#post{locations = Locations}) ->
+    location_centroid(preferred_location(Locations)).
+
+
+preferred_location(Locations) ->
+    preferred_location(Locations, {0, undefined}).
+
+preferred_location([Loc | Tail], {PrevPrecedence, _PrevLoc} = Preferred) ->
+    Precedence = location_precedence(Loc#location_data.type),
+    NewPreferred = case Precedence > PrevPrecedence of
+                       true  -> {Precedence, Loc};
+                       false -> Preferred
+                   end,
+    preferred_location(Tail, NewPreferred);
+preferred_location([], {_Precedence, Loc}) ->
+    Loc.
+
+
+location_precedence(google)  -> 4;
+location_precedence(bing)    -> 4;
+location_precedence(twitter) -> 3;
+location_precedence(web)     -> 2;
+location_precedence(user)    -> 1;
+location_precedence(_Type)   -> 0.
+
+
+location_centroid(#location_data{geo = BBox}) ->
+    case bounding_box_centroid(BBox#bounding_box.coordinates) of
+        [Lon, Lat] ->
+            [{<<"longitude">>, Lon},
+             {<<"latitude">>, Lat}];
+        [] ->
+            []
+    end;
+location_centroid(_Location) ->
+    [].
+
+bounding_box_centroid([_Lon, _Lat] = Coords) ->
+    Coords;
+bounding_box_centroid([Lon, Lat | Tail] = _Coords) ->
+    case bounding_box_centroid(Tail, Lon, Lat, 1) of
+        [_ | _] = Center ->
+            Center;
+        [] ->
+            lager:debug("Invalid location ~p~n", [_Coords]),
+            []
+    end;
+bounding_box_centroid(_Coords) ->
+    lager:debug("Invalid location ~p~n", [_Coords]),
+    [].
+
+%% @doc Calculate the centroid of a polygon assuming an Euclidean space (cartesian coordinates)
+bounding_box_centroid([Lon, Lat | Tail], LonAcc, LatAcc, Count) ->
+    bounding_box_centroid(Tail, LonAcc + Lon, LatAcc + Lat, Count + 1);
+bounding_box_centroid([], LonAcc, LatAcc, Count) ->
+    [LonAcc / Count, LatAcc / Count];
+bounding_box_centroid(_Coords, _LonAcc, _LatAcc, _Count) ->
+    [].
 
 
 build_valid_response(Result) ->

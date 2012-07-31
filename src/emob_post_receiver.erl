@@ -241,18 +241,23 @@ get_embedded_locations_internal(Tweet) ->
 -spec get_location_data_from_url(url() | undefined, timestamp()) -> #location_data{}.
 get_location_data_from_url(undefined, _) -> [];
 get_location_data_from_url(URL, Timestamp) -> 
-    case binary:match(URL, ?GOOGLE_MAPS_BASE_MATCH) of
-        {0, Length} ->
-            Params = binary:part(URL, Length, byte_size(URL) - (Length + 1)),
-            build_location_data(?LOCATION_TYPE_GOOGLE, Params, URL, Timestamp);
-        _ ->
-            case binary:match(URL, ?BING_MAPS_BASE_MATCH) of
-                {0, Length} ->
-                    Params = binary:part(URL, Length, byte_size(URL) - (Length + 1)),
-                    build_location_data(?LOCATION_TYPE_BING, Params, URL, Timestamp);
-                _ ->
-                    []
-            end
+    try
+        case binary:match(URL, ?GOOGLE_MAPS_BASE_MATCH) of
+            {0, Length} ->
+                Params = binary:part(URL, Length, byte_size(URL) - (Length)),
+                build_location_data(?LOCATION_TYPE_GOOGLE, Params, URL, Timestamp);
+            _ ->
+                case binary:match(URL, ?BING_MAPS_BASE_MATCH) of
+                    {0, Length} ->
+                        Params = binary:part(URL, Length, byte_size(URL) - (Length)),
+                        build_location_data(?LOCATION_TYPE_BING, Params, URL, Timestamp);
+                    _ ->
+                        []
+                end
+        end
+    catch
+        _:_ ->
+            []
     end.
 
 %% @doc Build out the #location_data{} based on the type of the URL

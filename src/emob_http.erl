@@ -129,7 +129,7 @@ handle_get([<<"mobs">>], Req0, _State) ->
         %% /mobs?token=:token
         {Token, Req} ->
             case emob_auth:get_user_from_token(Token) of
-                [#twitter_user{id_str = AttendingUserId}] ->
+                [#user{id = AttendingUserId}] ->
                     %% Once we support location-based requests we'll no longer return all the posts.
                     Response = json_posts(emob_post:get_all_posts(), AttendingUserId),
                     cowboy_http_req:reply(200, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req);

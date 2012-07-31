@@ -183,12 +183,20 @@ notify_users_of_post(Post) ->
 %% @doc Notify all the users that a new response exists
 % TODO have callback users in a seperate table, efficiently notify them, etc.
 notify_users_of_response(Response) ->
-    UserFun = fun() -> mnesia:foldl(fun(X, Acc) ->
-                    Target = X#user.callback,
-                    twitterl:respond_to_target(Target, {response, Response}),
-                    Acc
-                end, [], ?USER) end,
-    mnesia:transaction(UserFun).
+    {ResponseTag, _} = Response#response.id,
+    UserIds = 
+    case emob_post:get_post_by_response_tag(ResponseTag) of
+        undefined ->
+            [];
+        Post ->
+            emob_post:get_rsvps(Post#post.id)
+    end,
+    lager:debug("UserIds:~p~n, Response:~p~n", [UserIds, Response]),
+    lists:foreach(fun(UserId) ->
+                User = get_user(UserId),
+                Target = User#user.callback,
+                twitterl:respond_to_target(Target, {response, Response})
+        end, UserIds).
 
 %% @doc Notify a given user that the post is ready for action
 %%      (min_users have rsvp'd)

@@ -13,6 +13,7 @@
 
 -compile([{parse_transform, lager_transform}]).
 
+-behaviour(cowboy_http_handler).
 
 %% ------------------------------------------------------------------
 %% API Function Exports
@@ -318,6 +319,7 @@ post_to_ejson(Post = #post{post_data = Tweet}, AttendingUserId) ->
       {<<"created">>, Tweet#tweet.created_at},
       {<<"where">>, {post_coordinates(Post)}},
       {<<"when">>, Tweet#tweet.created_at},
+      {<<"hashtag">>, Post#post.response_tag},
       {<<"rsvps">>, length(Rsvps)} | Tail]}.
 
 
@@ -339,11 +341,10 @@ preferred_location([], {_Precedence, Loc}) ->
     Loc.
 
 
-location_precedence(google)  -> 4;
-location_precedence(bing)    -> 4;
-location_precedence(twitter) -> 3;
-location_precedence(web)     -> 2;
-location_precedence(user)    -> 1;
+location_precedence(web)     -> 3;
+location_precedence(google)  -> 2;
+location_precedence(bing)    -> 2;
+location_precedence(twitter) -> 1;
 location_precedence(_Type)   -> 0.
 
 
@@ -360,7 +361,7 @@ location_centroid(_Location) ->
 
 bounding_box_centroid([_Lon, _Lat] = Coords) ->
     Coords;
-bounding_box_centroid([Lon, Lat | Tail] = _Coords) ->
+bounding_box_centroid([[Lon, Lat] | Tail] = _Coords) ->
     case bounding_box_centroid(Tail, Lon, Lat, 1) of
         [_ | _] = Center ->
             Center;
@@ -372,8 +373,10 @@ bounding_box_centroid(_Coords) ->
     lager:debug("Invalid location ~p~n", [_Coords]),
     [].
 
-%% @doc Calculate the centroid of a polygon assuming an Euclidean space (cartesian coordinates)
-bounding_box_centroid([Lon, Lat | Tail], LonAcc, LatAcc, Count) ->
+%% @doc Calculate the centroid of a polygon (triangle, tetrahedron) assuming
+%%      an Euclidean space (cartesian coordinates).
+%%      See http://en.wikipedia.org/wiki/Centroid#Of_triangle_and_tetrahedron
+bounding_box_centroid([[Lon, Lat] | Tail], LonAcc, LatAcc, Count) ->
     bounding_box_centroid(Tail, LonAcc + Lon, LatAcc + Lat, Count + 1);
 bounding_box_centroid([], LonAcc, LatAcc, Count) ->
     [LonAcc / Count, LatAcc / Count];

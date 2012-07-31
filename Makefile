@@ -33,7 +33,10 @@ test:
 	ERL_FLAGS="-config app" rebar skip_deps=true eunit
 
 console:
-	$(ERL) -sname $(APPLICATION) $(EPATH) -config app
+	$(ERL) +K true +A 4 +P 65535 -sname $(APPLICATION) $(EPATH) -config app
+
+start:
+	$(ERL) +K true +A 4 +P 65535 -sname $(APPLICATION) $(EPATH) -config app -s emob
 
 test-console: test
 	$(ERL) -sname $(APPLICATION)_test $(TEST_EPATH) -config app

@@ -348,7 +348,7 @@ location_precedence(twitter) -> 1;
 location_precedence(_Type)   -> 0.
 
 
-location_centroid(#location_data{geo = BBox}) ->
+location_centroid(#location_data{geo = BBox}) when is_record(BBox, bounding_box) ->
     case bounding_box_centroid(BBox#bounding_box.coordinates) of
         [Lon, Lat] ->
             [{<<"longitude">>, Lon},

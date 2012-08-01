@@ -100,7 +100,6 @@ handle_cast(_Msg, State) ->
 
 %% @doc Get the tweet from twitterl
 handle_info(Tweet, State) when is_record(Tweet, tweet) ->
-    lager:debug("Tweet:~p~n", [Tweet]),
     process_response(Tweet),
     {noreply, State};
 
@@ -123,6 +122,5 @@ process_tweets(DestPid, Token, Secret, ResponseTag) ->
     proc_lib:spawn_link(fun() ->
                 %% TODO fix this so this happens only after init is completed
                 timer:sleep(?STARTUP_TIMER),
-                Foo = twitterl:statuses_filter_stream({process, DestPid}, [{"track", SResponseTag}], Token, Secret),
-                lager:debug("Foo:~p~n", [Foo])
+                twitterl:statuses_filter_stream({process, DestPid}, [{"track", SResponseTag}], Token, Secret)
         end).

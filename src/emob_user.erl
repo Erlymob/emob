@@ -191,7 +191,6 @@ notify_users_of_response(Response) ->
         Post ->
             emob_post:get_rsvps(Post#post.id)
     end,
-    lager:debug("UserIds:~p~n, Response:~p~n", [UserIds, Response]),
     lists:foreach(fun(UserId) ->
                 User = get_user(UserId),
                 Target = User#user.callback,

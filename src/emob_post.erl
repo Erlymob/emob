@@ -22,6 +22,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
+-export([send_post/3]).
 -export([get_post/1]).
 -export([get_post_by_response_tag/1]).
 -export([get_rsvps/1]).
@@ -41,6 +42,17 @@
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
+
+%% @doc Send a post
+-spec send_post(binary(), token(), secret()) ->  ok | error().
+send_post(Data, Token, Secret) ->
+    SData = util:get_string(Data),
+    case twitterl:statuses_update({self, self}, [{"status", SData}], Token, Secret) of
+        Response when is_record(Response, tweet) ->
+            ok;
+        Error ->
+            Error
+    end.
 
 %% @doc Get the post associated with the given post_id
 -spec get_post(post_id()) -> #post{} | undefined | error().

@@ -229,21 +229,30 @@ handle_get(Path, Req, State) ->
 -spec handle_post(Path :: cowboy_dispatcher:tokens(), http_req(), #state{}) -> {ok, http_req()}.
 handle_post([<<"rsvp">>], Req0, _State) ->
     %% /rsvp with id=:id&token=:token&going=true|false in the body
-    {PostId, Req1} = cowboy_http_req:qs_val(?ID, Req0),
-    {Token, Req2} = cowboy_http_req:qs_val(?TOKEN, Req1),
-    {Going, Req} = cowboy_http_req:qs_val(?GOING, Req2),
+    {QueryString, Req} = cowboy_http_req:body_qs(Req0),
+    PostIdStr = qs_value(?ID, QueryString),
+    Token = qs_value(?TOKEN, QueryString),
+    Going = qs_value(?GOING, QueryString),
     if
-        PostId =:= undefined orelse Token =:= undefined orelse Going =:= undefined ->
-            cowboy_http_req:reply(400, Req1);   %% bad request
+        PostIdStr =:= undefined orelse Token =:= undefined orelse Going =:= undefined ->
+            cowboy_http_req:reply(400, Req);   %% bad request
         true ->
             {Code, Response} = case emob_auth:get_user_from_token(Token) of
-                                   [#twitter_user{id_str = UserId}] ->
+                                   [#user{id = UserId}] ->
                                        Flag = to_boolean(Going),
+                                       PostId = bstr:to_integer(PostIdStr),
                                        ok = case Flag of
-                                                true  -> emob_user:rsvp_post(UserId, PostId);
-                                                false -> emob_user:unrsvp_post(UserId, PostId)
+                                                true  ->
+                                                    %% A user can only RSVP a mob once
+                                                    Rsvps = emob_post:get_rsvps(PostId),
+                                                    case lists:member(UserId, Rsvps) of
+                                                        true  -> ok;
+                                                        false -> emob_user:rsvp_post(UserId, PostId)
+                                                    end;
+                                                false ->
+                                                    emob_user:unrsvp_post(UserId, PostId)
                                             end,
-                                       {200, ejson:encode({[{<<"going">>, Flag}]})};
+                                       {200, ejson:encode({[{?GOING, Flag}]})};
                                    {error, _Reason} = Error ->
                                        lager:info("Could not find user for token '~s': ~p~n", [Token, Error]),
                                        %% WARNING: an attacker may gather information about
@@ -255,26 +264,37 @@ handle_post([<<"rsvp">>], Req0, _State) ->
 
 handle_post([<<"like">>], Req0, _State) ->
     %% /like with id=:id&token=:token&like=true|false in the body
-    {PostId, Req1} = cowboy_http_req:qs_val(?ID, Req0),
-    {Token, Req2} = cowboy_http_req:qs_val(?TOKEN, Req1),
-    {Like, Req} = cowboy_http_req:qs_val(?LIKE, Req2),
+    {QueryString, Req} = cowboy_http_req:body_qs(Req0),
+    PostIdStr = qs_value(?ID, QueryString),
+    Token = qs_value(?TOKEN, QueryString),
+    Like = qs_value(?LIKE, QueryString),
     if
-        PostId =:= undefined orelse Token =:= undefined orelse Like =:= undefined ->
-            cowboy_http_req:reply(400, Req1);   %% bad request
+        PostIdStr =:= undefined orelse Token =:= undefined orelse Like =:= undefined ->
+            cowboy_http_req:reply(400, Req);   %% bad request
         true ->
-            case emob_auth:get_user_from_token(Token) of
-                [#twitter_user{id_str = UserId}] ->
-                    ok = case to_boolean(Like) of
-                             true  -> emob_user:like_post(UserId, PostId);
-                             false -> emob_user:unlike_post(UserId, PostId)
-                         end,
-                    cowboy_http_req:reply(200, Req);
-                {error, _Reason} = Error ->
-                    lager:info("Could not find user for token '~s': ~p~n", [Token, Error]),
-                    %% WARNING: an attacker may gather information about
-                    %%          valid tokens with this response code.
-                    cowboy_http_req:reply(400, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], json_error(Error), Req)
-            end
+            {Code, Response} = case emob_auth:get_user_from_token(Token) of
+                                   [#user{id = UserId}] ->
+                                       Flag = to_boolean(Like),
+                                       PostId = bstr:to_integer(PostIdStr),
+                                       ok = case Flag of
+                                                true  ->
+                                                    %% A user can only like a mob once
+                                                    Likes = emob_post:get_likes(PostId),
+                                                    case lists:member(UserId, Likes) of
+                                                        true  -> ok;
+                                                        false -> emob_user:like_post(UserId, PostId)
+                                                    end;
+                                                false ->
+                                                    emob_user:unlike_post(UserId, PostId)
+                                            end,
+                                       {200, ejson:encode({[{?LIKE, Flag}]})};
+                                   {error, _Reason} = Error ->
+                                       lager:info("Could not find user for token '~s': ~p~n", [Token, Error]),
+                                       %% WARNING: an attacker may gather information about
+                                       %%          valid tokens with this response code.
+                                       {400, json_error(Error)}
+                               end,
+            cowboy_http_req:reply(Code, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req)
     end;
 
 handle_post(Path, Req, State) ->
@@ -337,6 +357,8 @@ post_to_ejson(Post = #post{post_data = Tweet}, AttendingUserId) ->
                            #twitter_user{screen_name = ScreenName, id_str = AttendingUserId} when is_binary(ScreenName) ->
                                {ScreenName, [{?GOING, lists:member(AttendingUserId, Rsvps)},
                                              {?LIKE, lists:member(AttendingUserId, Likes)}]};
+                           #twitter_user{screen_name = ScreenName} when is_binary(ScreenName) ->
+                               {ScreenName, []};
                            _ ->
                                {null, []}
                         end,
@@ -462,7 +484,7 @@ user_id_from_req(Req0) ->
             Result;
         {Token, Req} ->
             case emob_auth:get_user_from_token(Token) of
-                [#twitter_user{id_str = UserId}] ->
+                [#user{id = UserId}] ->
                     {UserId, Req};
                 Error ->
                     lager:info("Could not find user for token '~s': ~p~n", [Token, Error]),
@@ -488,3 +510,15 @@ to_boolean(<<"TRUE">>) ->
     true;
 to_boolean(<<"FALSE">>) ->
     false.
+
+
+qs_value(Key, List) ->
+    qs_value(Key, List, undefined).
+
+qs_value(Key, List, Default) ->
+    case lists:keyfind(Key, 1, List) of
+        {Key, Value} ->
+            Value;
+        false ->
+            Default
+    end.

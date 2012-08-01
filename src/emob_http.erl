@@ -230,16 +230,17 @@ handle_get(Path, Req, State) ->
 handle_post([<<"rsvp">>], Req0, _State) ->
     %% /rsvp with id=:id&token=:token&going=true|false in the body
     {QueryString, Req} = cowboy_http_req:body_qs(Req0),
-    PostId = qs_value(?ID, QueryString),
+    PostIdStr = qs_value(?ID, QueryString),
     Token = qs_value(?TOKEN, QueryString),
     Going = qs_value(?GOING, QueryString),
     if
-        PostId =:= undefined orelse Token =:= undefined orelse Going =:= undefined ->
+        PostIdStr =:= undefined orelse Token =:= undefined orelse Going =:= undefined ->
             cowboy_http_req:reply(400, Req);   %% bad request
         true ->
             {Code, Response} = case emob_auth:get_user_from_token(Token) of
-                                   [#twitter_user{id_str = UserId}] ->
+                                   [#user{id = UserId}] ->
                                        Flag = to_boolean(Going),
+                                       PostId = bstr:to_integer(PostIdStr),
                                        ok = case Flag of
                                                 true  -> emob_user:rsvp_post(UserId, PostId);
                                                 false -> emob_user:unrsvp_post(UserId, PostId)
@@ -257,16 +258,17 @@ handle_post([<<"rsvp">>], Req0, _State) ->
 handle_post([<<"like">>], Req0, _State) ->
     %% /like with id=:id&token=:token&like=true|false in the body
     {QueryString, Req} = cowboy_http_req:body_qs(Req0),
-    PostId = qs_value(?ID, QueryString),
+    PostIdStr = qs_value(?ID, QueryString),
     Token = qs_value(?TOKEN, QueryString),
     Like = qs_value(?LIKE, QueryString),
     if
-        PostId =:= undefined orelse Token =:= undefined orelse Like =:= undefined ->
+        PostIdStr =:= undefined orelse Token =:= undefined orelse Like =:= undefined ->
             cowboy_http_req:reply(400, Req);   %% bad request
         true ->
             {Code, Response} = case emob_auth:get_user_from_token(Token) of
-                                   [#twitter_user{id_str = UserId}] ->
+                                   [#user{id = UserId}] ->
                                        Flag = to_boolean(Like),
+                                       PostId = bstr:to_integer(PostIdStr),
                                        ok = case Flag of
                                                 true  -> emob_user:like_post(UserId, PostId);
                                                 false -> emob_user:unlike_post(UserId, PostId)
@@ -466,7 +468,7 @@ user_id_from_req(Req0) ->
             Result;
         {Token, Req} ->
             case emob_auth:get_user_from_token(Token) of
-                [#twitter_user{id_str = UserId}] ->
+                [#user{id = UserId}] ->
                     {UserId, Req};
                 Error ->
                     lager:info("Could not find user for token '~s': ~p~n", [Token, Error]),

@@ -48,6 +48,7 @@ start() ->
                        {[<<"mobs">>], emob_http, []},                %% return the list of upcoming mobs
                        {[<<"mob">>], emob_http, []},                 %% return information for an individual mob
                        {[<<"rsvp">>], emob_http, []},                %% inform that a user will be attending a mob
+                       {[<<"like">>], emob_http, []},                %% inform that a user likes a mob
                        {[<<"get_loc">>], emob_http, []},             %% return the currently logged in user's most recent location
                        {[<<"set_loc">>], emob_http, []},             %% set the currently logged in user's location
                        {[<<"get_request_token">>], emob_http, []},   %% get a request token for the user to initiate oauth

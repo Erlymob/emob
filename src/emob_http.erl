@@ -236,18 +236,44 @@ handle_post([<<"rsvp">>], Req0, _State) ->
         PostId =:= undefined orelse Token =:= undefined orelse Going =:= undefined ->
             cowboy_http_req:reply(400, Req1);   %% bad request
         true ->
+            {Code, Response} = case emob_auth:get_user_from_token(Token) of
+                                   [#twitter_user{id_str = UserId}] ->
+                                       Flag = to_boolean(Going),
+                                       ok = case Flag of
+                                                true  -> emob_user:rsvp_post(UserId, PostId);
+                                                false -> emob_user:unrsvp_post(UserId, PostId)
+                                            end,
+                                       {200, ejson:encode({[{<<"going">>, Flag}]})};
+                                   {error, _Reason} = Error ->
+                                       lager:info("Could not find user for token '~s': ~p~n", [Token, Error]),
+                                       %% WARNING: an attacker may gather information about
+                                       %%          valid tokens with this response code.
+                                       {400, json_error(Error)}
+                               end,
+            cowboy_http_req:reply(Code, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], Response, Req)
+    end;
+
+handle_post([<<"like">>], Req0, _State) ->
+    %% /like with id=:id&token=:token&like=true|false in the body
+    {PostId, Req1} = cowboy_http_req:qs_val(?ID, Req0),
+    {Token, Req2} = cowboy_http_req:qs_val(?TOKEN, Req1),
+    {Like, Req} = cowboy_http_req:qs_val(?LIKE, Req2),
+    if
+        PostId =:= undefined orelse Token =:= undefined orelse Like =:= undefined ->
+            cowboy_http_req:reply(400, Req1);   %% bad request
+        true ->
             case emob_auth:get_user_from_token(Token) of
                 [#twitter_user{id_str = UserId}] ->
-                    ok = case to_boolean(Going) of
-                             true  -> emob_user:rsvp_post(UserId, PostId);
-                             false -> emob_user:unrsvp_post(UserId, PostId)
+                    ok = case to_boolean(Like) of
+                             true  -> emob_user:like_post(UserId, PostId);
+                             false -> emob_user:unlike_post(UserId, PostId)
                          end,
                     cowboy_http_req:reply(200, Req);
                 {error, _Reason} = Error ->
                     lager:info("Could not find user for token '~s': ~p~n", [Token, Error]),
                     %% WARNING: an attacker may gather information about
                     %%          valid tokens with this response code.
-                    cowboy_http_req:reply(400, Req1)  %% bad request
+                    cowboy_http_req:reply(400, [{?HEADER_CONTENT_TYPE, <<?MIME_TYPE_JSON>>}], json_error(Error), Req)
             end
     end;
 
@@ -304,10 +330,13 @@ access_to_ejson(AccessData) ->
 
 post_to_ejson(Post = #post{post_data = Tweet}, AttendingUserId) ->
     Rsvps = emob_post:get_rsvps(Post#post.id),
+    Likes = emob_post:get_likes(Post#post.id),
     %% lager:debug("Rsvps: ~p~n", [Rsvps]),
+    %% lager:debug("Likes: ~p~n", [Likes]),
     {UserName, Tail} = case Tweet#tweet.user of
                            #twitter_user{screen_name = ScreenName, id_str = AttendingUserId} when is_binary(ScreenName) ->
-                               {ScreenName, [{?GOING, lists:member(AttendingUserId, Rsvps)}]};
+                               {ScreenName, [{?GOING, lists:member(AttendingUserId, Rsvps)},
+                                             {?LIKE, lists:member(AttendingUserId, Likes)}]};
                            _ ->
                                {null, []}
                         end,
@@ -320,7 +349,8 @@ post_to_ejson(Post = #post{post_data = Tweet}, AttendingUserId) ->
       {<<"where">>, {post_coordinates(Post)}},
       {<<"when">>, Tweet#tweet.created_at},
       {<<"hashtag">>, Post#post.response_tag},
-      {<<"rsvps">>, length(Rsvps)} | Tail]}.
+      {<<"rsvps">>, length(Rsvps)},
+      {<<"likes">>, length(Likes)} | Tail]}.
 
 
 post_coordinates(#post{locations = Locations}) ->

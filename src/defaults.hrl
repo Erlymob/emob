@@ -40,6 +40,7 @@
 -define(USER_TWITTER_ID, twitter_id).
 -define(ID, <<"id">>).
 -define(GOING, <<"going">>).
+-define(LIKE, <<"like">>).
 
 %% TWITTERL DEFINES
 -define(CALLBACK_URL, <<"callback_url">>).

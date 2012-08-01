@@ -527,6 +527,8 @@ update_posts_from_cache(User) ->
     end.
 
 %% @doc Send the post to a given user
+notify_user_of_post({error, _Error}, _PostId) ->
+    ok;
 notify_user_of_post(User, PostId) ->
     Target= User#user.callback,
     case Target=/= undefined of
@@ -538,6 +540,8 @@ notify_user_of_post(User, PostId) ->
     end.
 
 %% @doc Tell the user that a given post has achieved min_users
+notify_user_of_readiness({error, _Error}, _PostId) ->
+    ok;
 notify_user_of_readiness(User, PostId) ->
     Target= User#user.callback,
     case Target=/= undefined of

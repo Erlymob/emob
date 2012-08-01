@@ -242,8 +242,15 @@ handle_post([<<"rsvp">>], Req0, _State) ->
                                        Flag = to_boolean(Going),
                                        PostId = bstr:to_integer(PostIdStr),
                                        ok = case Flag of
-                                                true  -> emob_user:rsvp_post(UserId, PostId);
-                                                false -> emob_user:unrsvp_post(UserId, PostId)
+                                                true  ->
+                                                    %% A user can only RSVP a mob once
+                                                    Rsvps = emob_post:get_rsvps(PostId),
+                                                    case lists:member(UserId, Rsvps) of
+                                                        true  -> ok;
+                                                        false -> emob_user:rsvp_post(UserId, PostId)
+                                                    end;
+                                                false ->
+                                                    emob_user:unrsvp_post(UserId, PostId)
                                             end,
                                        {200, ejson:encode({[{?GOING, Flag}]})};
                                    {error, _Reason} = Error ->
@@ -270,8 +277,15 @@ handle_post([<<"like">>], Req0, _State) ->
                                        Flag = to_boolean(Like),
                                        PostId = bstr:to_integer(PostIdStr),
                                        ok = case Flag of
-                                                true  -> emob_user:like_post(UserId, PostId);
-                                                false -> emob_user:unlike_post(UserId, PostId)
+                                                true  ->
+                                                    %% A user can only like a mob once
+                                                    Likes = emob_post:get_likes(PostId),
+                                                    case lists:member(UserId, Likes) of
+                                                        true  -> ok;
+                                                        false -> emob_user:like_post(UserId, PostId)
+                                                    end;
+                                                false ->
+                                                    emob_user:unlike_post(UserId, PostId)
                                             end,
                                        {200, ejson:encode({[{?LIKE, Flag}]})};
                                    {error, _Reason} = Error ->
@@ -343,6 +357,8 @@ post_to_ejson(Post = #post{post_data = Tweet}, AttendingUserId) ->
                            #twitter_user{screen_name = ScreenName, id_str = AttendingUserId} when is_binary(ScreenName) ->
                                {ScreenName, [{?GOING, lists:member(AttendingUserId, Rsvps)},
                                              {?LIKE, lists:member(AttendingUserId, Likes)}]};
+                           #twitter_user{screen_name = ScreenName} when is_binary(ScreenName) ->
+                               {ScreenName, []};
                            _ ->
                                {null, []}
                         end,

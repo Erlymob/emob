@@ -418,10 +418,16 @@ update_user_data_from_twitter(User, TwitterUser) ->
     NewLocations = lists:foldl(fun(Location, _Acc) ->
                     update_locations(Location, User#user.locations, false)
             end, [], [TweetLocation | EmbeddedLocations]),
-    NewUser = User#user{locations = NewLocations,
-              tweet = TwitterUser#twitter_user.status},
+    NewUser = User#user{
+            id = TwitterUser#twitter_user.id_str,
+            screen_name = TwitterUser#twitter_user.screen_name,
+            twitter_id = TwitterUser#twitter_user.id_str,
+            profile_picture = TwitterUser#twitter_user.profile_image_url,
+            locations = NewLocations,
+            tweet = TwitterUser#twitter_user.status},
     app_cache:set_data(NewUser),
-    NewUser.
+    [StoredUser] = app_cache:get_data(?USER, NewUser#user.id),
+    StoredUser.
 
 %% @doc Update a user's info based on the info in the received tweet
 -spec update_user_from_post_internal(#post{}) -> #user{} | error().
@@ -435,11 +441,14 @@ update_user_from_post_internal(Post) ->
 %% @doc Rsvp a post for a given user
 -spec rsvp_post_internal(user_id(), post_id()) -> ok | error().
 rsvp_post_internal(UserId, PostId) ->
-    Entry = #post_rsvp{id = PostId, rsvp_user = UserId},
-    Result = app_cache:set_data(?SAFE, Entry),
-    notify_user_of_readiness(PostId),
-    Result.
-
+    WriteFun = get_write_fun(UserId, PostId, ?POST_RSVP),
+    case mnesia:transaction(WriteFun) of
+        {atomic, _} ->
+            notify_user_of_readiness(PostId),
+            ok;
+        Error ->
+            {error, Error}
+    end.
 %% @doc Unrsvp a post for a given user
 -spec unrsvp_post_internal(user_id(), post_id()) -> ok | error().
 unrsvp_post_internal(UserId, PostId) ->
@@ -458,8 +467,13 @@ get_rsvp_for_user(UserId, PostId) ->
 %% @doc Rsvp a post for a given user
 -spec like_post_internal(user_id(), post_id()) -> ok | error().
 like_post_internal(UserId, PostId) ->
-    Entry = #post_like{id = PostId, like_user = UserId},
-    app_cache:set_data(?SAFE, Entry).
+    WriteFun = get_write_fun(UserId, PostId, ?POST_LIKE),
+    case mnesia:transaction(WriteFun) of
+        {atomic, _} ->
+            ok;
+        Error ->
+            {error, Error}
+    end.
 
 %% @doc Unlike a post for a given user
 -spec unlike_post_internal(user_id(), post_id()) -> ok | error().
@@ -479,8 +493,13 @@ get_like_for_user(UserId, PostId) ->
 %% @doc Ignore a given post for a user
 -spec ignore_post_internal(user_id(), post_id()) -> ok | error().
 ignore_post_internal(UserId, PostId) ->
-    Entry = #post_ignore{id = PostId, ignore_user = UserId},
-    app_cache:set_data(?SAFE, Entry).
+    WriteFun = get_write_fun(UserId, PostId, ?POST_IGNORE),
+    case mnesia:transaction(WriteFun) of
+        {atomic, _} ->
+            ok;
+        Error ->
+            {error, Error}
+    end.
 
 %% @doc Unignore a given post for a user
 -spec unignore_post_internal(user_id(), post_id()) -> ok | error().
@@ -497,6 +516,34 @@ unignore_post_internal(UserId, PostId) ->
 get_ignore_for_user(UserId, PostId) ->
     Ignores = app_cache:get_data(?POST_IGNORE, PostId),
     lists:keyfind(UserId, #post_ignore.ignore_user, Ignores).
+
+%% @doc Get the function used to check/write the data
+-spec get_write_fun(user_id(), post_id(), table()) -> function().
+get_write_fun(UserId, PostId, Table) ->
+    %% TODO put this in app_cache as a safe_bag_write
+    fun() ->
+            UserList = case mnesia:read(?POST_RSVP) of
+                {atomic, Data} ->
+                    Data;
+                _ ->
+                    []
+            end,
+            case lists:member(UserId, UserList) of
+                true ->
+                    ok;
+                false ->
+                    Entry = get_table_entry(UserId, PostId, Table),
+                    mnesia:write(Entry)
+            end
+    end.
+
+get_table_entry(UserId, PostId, ?POST_RSVP) ->
+    #post_rsvp{id = PostId, rsvp_user = UserId};
+get_table_entry(UserId, PostId, ?POST_LIKE) ->
+    #post_like{id = PostId, like_user = UserId};
+get_table_entry(UserId, PostId, ?POST_IGNORE) ->
+    #post_ignore{id = PostId, ignore_user = UserId}.
+
 
 %% @doc Set the callback for a given user to something :-)
 -spec set_callback_internal(user_id(), target()) -> #user{}.

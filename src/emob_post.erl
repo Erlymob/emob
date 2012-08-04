@@ -44,12 +44,12 @@
 %% ------------------------------------------------------------------
 
 %% @doc Send a post
--spec send_post(binary(), token(), secret()) ->  ok | error().
+-spec send_post(binary(), token(), secret()) ->  #tweet{} | error().
 send_post(Data, Token, Secret) ->
     SData = util:get_string(Data),
     case twitterl:statuses_update({self, self}, [{"status", SData}], Token, Secret) of
         Response when is_record(Response, tweet) ->
-            ok;
+            Response;
         Error ->
             Error
     end.

@@ -30,7 +30,7 @@ dialyze: compile
 	@dialyzer -r ./apps/
 
 test:
-	ERL_FLAGS="-config app" rebar skip_deps=true eunit
+	ERL_FLAGS="-config app" rebar skip_deps=true ct
 
 console:
 	$(ERL) +K true +A 4 +P 65535 -sname $(APPLICATION) $(EPATH) -config app

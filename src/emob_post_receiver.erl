@@ -65,7 +65,8 @@ process_post(Post) ->
 
 -spec delete_post(post_id()) -> ok.
 delete_post(PostId) ->
-    emob_manager:safe_call({?EMOB_POST_RECEIVER, ?EMOB_POST_RECEIVER}, {delete_post, PostId}).
+    lager:debug("PostId:~p~n", [PostId]),
+    emob_manager:safe_cast({?EMOB_POST_RECEIVER, ?EMOB_POST_RECEIVER}, {delete_post, PostId}).
 
 -spec set_min_users_for_post(post_id(), integer()) -> ok | error().
 set_min_users_for_post(PostId, Count) ->
@@ -139,7 +140,8 @@ handle_cast({delete_post, PostId}, State) ->
     Token = State#post_receiver_state.token,
     Secret = State#post_receiver_state.secret,
     SPostId = util:get_string(PostId),
-    twitterl:statuses_destroy({self, self}, SPostId, [], Token, Secret),
+    Foo = twitterl:statuses_destroy({self, self}, SPostId, [], Token, Secret),
+    lager:debug("Foo:~p~n", [Foo]),
     app_cache:remove_data(?SAFE, ?POST, PostId),
     {noreply, State};
 
@@ -249,7 +251,9 @@ get_tweet_locations_internal(_) ->
 
 
 %% @doc Get the locations embedded in any known URLs in the tweet
--spec get_embedded_locations_internal(#tweet{}) -> [#location_data{}].
+-spec get_embedded_locations_internal(#tweet{} | undefined) -> [#location_data{}].
+get_embedded_locations_internal(undefined) ->
+    [];
 get_embedded_locations_internal(Tweet) ->
     Timestamp = Tweet#tweet.created_at,
     case Tweet#tweet.entities of

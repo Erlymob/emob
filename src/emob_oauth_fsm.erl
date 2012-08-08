@@ -103,7 +103,7 @@ init(_Args) ->
     {ok, unauthorized, State}.
 
 unauthorized(_Event, State) ->
-    {next_state, unauthorized, State}.
+    {stop, normal, State}.
 
 unauthorized({request_token, CallbackURL}, _From, OldState) ->
     case twitterl:get_request_token(CallbackURL) of
@@ -116,13 +116,16 @@ unauthorized({request_token, CallbackURL}, _From, OldState) ->
             State = #state{
                     token = TokenData#twitter_token_data.access_token,
                     secret = TokenData#twitter_token_data.access_token_secret},
-            {reply, TokenData, token_requested, State};
+            {reply, TokenData, token_requested, State, ?EMOB_OAUTH_TTL};
         Error ->
-            {reply, {error, Error}, unauthorized, OldState}
-    end.
+            {reply, {error, Error}, unauthorized, OldState, ?EMOB_OAUTH_TTL}
+    end;
+
+unauthorized(Event, _From, State) ->
+    {reply, {error, {invalid_event, Event}}, unauthorized, State}.
 
 token_requested(_Event, State) ->
-    {next_state, token_requested, State}.
+    {stop, normal, State}.
 
 token_requested({authorize, Verifier}, _From, State) ->
     Token = State#state.token,
@@ -132,11 +135,11 @@ token_requested({authorize, Verifier}, _From, State) ->
             NewState = State#state{access_data = AccessData},
             {stop, normal, {ok, AccessData}, NewState};
         _ ->
-            {reply, {error, invalid_token_data}, token_requested, State}
+            {reply, {error, invalid_token_data}, token_requested, State, ?EMOB_OAUTH_TTL}
     end;
 
-token_requested(_Event, _From, State) ->
-    {reply, {error, invalid_event}, token_requested, State}.
+token_requested(Event, _From, State) ->
+    {reply, {error, {invalid_event, Event}}, token_requested, State}.
 
 handle_event(_Event, StateName, State) ->
   {next_state, StateName, State}.

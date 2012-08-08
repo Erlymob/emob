@@ -15,6 +15,7 @@
 -define(EMOB_POST_DISTRIBUTOR, emob_post_distributor).
 -define(EMOB_RESPONSE_DISTRIBUTOR, emob_response_distributor).
 -define(EMOB_USER, emob_user).
+-define(EMOB_OAUTH_TTL, 30000).
 -define(LATEST, <<"latest">>).
 -define(INVALID_BOOLEAN, <<"invalid_boolean">>).
 -define(INVALID_BINARY, <<"invalid_binary">>).
